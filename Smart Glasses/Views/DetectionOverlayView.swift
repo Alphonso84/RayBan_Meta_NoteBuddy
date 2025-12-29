@@ -7,35 +7,113 @@
 
 import SwiftUI
 
-/// Overlay view that displays detection results on top of the video feed
+/// Overlay view that displays tracking/detection results on top of the video feed
 struct DetectionOverlayView: View {
     let result: DetectionResult?
-    let focusArea: FocusArea
-    let showFocusArea: Bool
+    var onClearSelection: (() -> Void)? = nil
 
+    /// Colors for tracked objects
+    private let trackingColors: [Color] = [
+        .cyan, .mint, .pink, .orange,
+        .yellow, .purple, .teal, .indigo
+    ]
+
+    init(result: DetectionResult?, onClearSelection: (() -> Void)? = nil) {
+        self.result = result
+        self.onClearSelection = onClearSelection
+    }
+
+    // Legacy initializer for compatibility
     init(
         result: DetectionResult?,
         focusArea: FocusArea = .center,
         showFocusArea: Bool = true
     ) {
         self.result = result
-        self.focusArea = focusArea
-        self.showFocusArea = showFocusArea
+        self.onClearSelection = nil
+        // Focus area parameters are now ignored - tracking uses full frame
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Focus area indicator
-                if showFocusArea {
-                    FocusAreaOverlay(
-                        focusArea: focusArea,
-                        size: geometry.size
-                    )
+                // Manual tracking mode: show single tracked object with special styling
+                if let result = result, result.isManualTrackingMode {
+                    ForEach(result.trackedObjects) { trackedObject in
+                        ManualTrackingBoxView(
+                            trackedObject: trackedObject,
+                            containerSize: geometry.size
+                        )
+                    }
+
+                    // "Tracking Locked" indicator and clear button at top
+                    VStack {
+                        HStack {
+                            // Tracking locked indicator
+                            HStack(spacing: 6) {
+                                Image(systemName: "scope")
+                                    .font(.caption)
+                                Text("Tracking Locked")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.green.opacity(0.8))
+                            .clipShape(Capsule())
+
+                            Spacer()
+
+                            // Clear selection button
+                            if let onClear = onClearSelection {
+                                Button {
+                                    onClear()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                        Text("Clear")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.red.opacity(0.8))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 60)
+
+                        Spacer()
+                    }
                 }
 
-                // Bounding boxes for detected objects
-                if let result = result {
+                // Auto saliency tracking mode: show tracked objects
+                else if let result = result, result.isTrackingMode {
+                    ForEach(result.trackedObjects) { trackedObject in
+                        TrackingBoxView(
+                            trackedObject: trackedObject,
+                            containerSize: geometry.size,
+                            color: trackingColors[trackedObject.colorIndex % trackingColors.count]
+                        )
+                    }
+
+                    // Tracking count badge
+                    if !result.trackedObjects.isEmpty {
+                        TrackingBadge(count: result.trackedObjects.count)
+                            .position(
+                                x: geometry.size.width - 50,
+                                y: 30
+                            )
+                    }
+                }
+
+                // Classification mode: show detected objects (legacy)
+                if let result = result, !result.isTrackingMode {
                     ForEach(result.objects) { object in
                         BoundingBoxView(
                             object: object,
@@ -43,7 +121,6 @@ struct DetectionOverlayView: View {
                         )
                     }
 
-                    // Detection count badge
                     if result.hasFocusedObjects {
                         DetectionBadge(count: result.focusedObjects.count)
                             .position(
@@ -54,7 +131,154 @@ struct DetectionOverlayView: View {
                 }
             }
         }
-        .allowsHitTesting(false) // Pass through touches
+        .allowsHitTesting(onClearSelection != nil) // Enable hit testing only when clear button is available
+    }
+}
+
+// MARK: - Tracking Box View
+/// Displays a bounding box around a tracked object (no label, just colored box)
+struct TrackingBoxView: View {
+    let trackedObject: TrackedObject
+    let containerSize: CGSize
+    let color: Color
+
+    /// Convert Vision coordinates (bottom-left origin) to SwiftUI (top-left origin)
+    private var displayRect: CGRect {
+        let box = trackedObject.boundingBox
+        return CGRect(
+            x: box.origin.x * containerSize.width,
+            y: (1 - box.origin.y - box.height) * containerSize.height,
+            width: box.width * containerSize.width,
+            height: box.height * containerSize.height
+        )
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Bounding box rectangle with animated border
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(color, lineWidth: 3)
+                .frame(width: displayRect.width, height: displayRect.height)
+                .shadow(color: color.opacity(0.5), radius: 4)
+
+            // Small label tag with object number
+            Text(trackedObject.trackingLabel)
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(color)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .offset(y: -24)
+        }
+        .position(x: displayRect.midX, y: displayRect.midY)
+    }
+}
+
+// MARK: - Tracking Badge
+/// Shows count of tracked objects
+struct TrackingBadge: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "scope")
+                .font(.caption)
+            Text("\(count)")
+                .font(.caption)
+                .fontWeight(.bold)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.cyan.opacity(0.8))
+        .clipShape(Capsule())
+    }
+}
+
+// MARK: - Manual Tracking Box View
+/// Displays a bounding box for manually selected object with animated green corners
+struct ManualTrackingBoxView: View {
+    let trackedObject: TrackedObject
+    let containerSize: CGSize
+
+    /// Convert Vision coordinates (bottom-left origin) to SwiftUI (top-left origin)
+    private var displayRect: CGRect {
+        let box = trackedObject.boundingBox
+        return CGRect(
+            x: box.origin.x * containerSize.width,
+            y: (1 - box.origin.y - box.height) * containerSize.height,
+            width: box.width * containerSize.width,
+            height: box.height * containerSize.height
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            // Animated corner brackets
+            TrackingCorners(rect: displayRect)
+
+            // Crosshair at center
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .light))
+                .foregroundColor(.green.opacity(0.8))
+                .position(x: displayRect.midX, y: displayRect.midY)
+        }
+    }
+}
+
+// MARK: - Tracking Corners
+/// Animated corner brackets for manual tracking selection
+struct TrackingCorners: View {
+    let rect: CGRect
+    let cornerLength: CGFloat = 24
+    let lineWidth: CGFloat = 3
+
+    @State private var isAnimating = false
+
+    var body: some View {
+        let color = Color.green
+
+        ZStack {
+            // Top-left corner
+            Path { path in
+                path.move(to: CGPoint(x: rect.minX, y: rect.minY + cornerLength))
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.minX + cornerLength, y: rect.minY))
+            }
+            .stroke(color, lineWidth: lineWidth)
+
+            // Top-right corner
+            Path { path in
+                path.move(to: CGPoint(x: rect.maxX - cornerLength, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + cornerLength))
+            }
+            .stroke(color, lineWidth: lineWidth)
+
+            // Bottom-left corner
+            Path { path in
+                path.move(to: CGPoint(x: rect.minX, y: rect.maxY - cornerLength))
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.minX + cornerLength, y: rect.maxY))
+            }
+            .stroke(color, lineWidth: lineWidth)
+
+            // Bottom-right corner
+            Path { path in
+                path.move(to: CGPoint(x: rect.maxX - cornerLength, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - cornerLength))
+            }
+            .stroke(color, lineWidth: lineWidth)
+        }
+        .shadow(color: color.opacity(0.6), radius: isAnimating ? 8 : 4)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
     }
 }
 
@@ -301,30 +525,35 @@ struct ProcessingIndicator: View {
 }
 
 // MARK: - Preview
-#Preview {
+#Preview("Tracking Mode") {
     ZStack {
         Color.black
 
         DetectionOverlayView(
             result: DetectionResult(
-                objects: [
-                    DetectedObject(
-                        label: "Cat",
-                        confidence: 0.92,
+                trackedObjects: [
+                    TrackedObject(
                         boundingBox: CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.4),
-                        isInFocusArea: true
+                        saliency: 0.92,
+                        trackingLabel: "Object 1",
+                        colorIndex: 0
                     ),
-                    DetectedObject(
-                        label: "Couch",
-                        confidence: 0.78,
-                        boundingBox: CGRect(x: 0.1, y: 0.6, width: 0.3, height: 0.2),
-                        isInFocusArea: false
+                    TrackedObject(
+                        boundingBox: CGRect(x: 0.1, y: 0.6, width: 0.25, height: 0.2),
+                        saliency: 0.78,
+                        trackingLabel: "Object 2",
+                        colorIndex: 1
+                    ),
+                    TrackedObject(
+                        boundingBox: CGRect(x: 0.7, y: 0.2, width: 0.2, height: 0.3),
+                        saliency: 0.65,
+                        trackingLabel: "Object 3",
+                        colorIndex: 2
                     )
                 ],
                 timestamp: Date(),
                 processingTimeMs: 45
-            ),
-            focusArea: .center
+            )
         )
     }
 }

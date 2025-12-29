@@ -3,6 +3,7 @@
 //  Smart Glasses
 //
 //  Encodes video frames from CMSampleBuffer to base64 JPEG for Gemini Live API
+//  Supports both real-time streaming and buffered chunk mode (5-second intervals)
 //
 
 import AVFoundation
@@ -26,6 +27,30 @@ class GeminiFrameEncoder {
     // Statistics
     private(set) var framesEncoded: Int = 0
     private(set) var framesSkipped: Int = 0
+
+    // MARK: - Buffered Mode Properties
+
+    /// Whether to buffer frames instead of sending immediately
+    var isBufferedMode: Bool = true
+
+    /// Interval for sending buffered frames (default: 5 seconds)
+    var bufferInterval: TimeInterval = 5.0
+
+    /// Maximum frames to keep in buffer (to limit memory usage)
+    private let maxBufferSize: Int = 15
+
+    /// Frame buffer for chunk mode
+    private var frameBuffer: [String] = []
+    private let bufferLock = NSLock()
+
+    /// Timer for periodic buffer flush
+    private var bufferTimer: Timer?
+
+    /// Callback when buffer is ready to send
+    var onBufferReady: (([String]) -> Void)?
+
+    /// Last frame timestamp for representative frame selection
+    private var lastBufferFlushTime: CFTimeInterval = 0
 
     // MARK: - Initialization
 
@@ -137,6 +162,8 @@ class GeminiFrameEncoder {
         lastEncodedTime = 0
         framesEncoded = 0
         framesSkipped = 0
+        clearBuffer()
+        lastBufferFlushTime = 0
     }
 
     /// Get encoding statistics
@@ -144,6 +171,123 @@ class GeminiFrameEncoder {
         let total = framesEncoded + framesSkipped
         let ratio = total > 0 ? Double(framesEncoded) / Double(total) : 0
         return (framesEncoded, framesSkipped, ratio)
+    }
+
+    // MARK: - Buffered Mode Methods
+
+    /// Start the buffer timer for periodic chunk sending
+    func startBufferTimer() {
+        stopBufferTimer()
+        lastBufferFlushTime = CACurrentMediaTime()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.bufferTimer = Timer.scheduledTimer(withTimeInterval: self.bufferInterval, repeats: true) { [weak self] _ in
+                self?.flushBuffer()
+            }
+        }
+        print("[GeminiEncoder] Buffer timer started with \(bufferInterval)s interval")
+    }
+
+    /// Stop the buffer timer
+    func stopBufferTimer() {
+        bufferTimer?.invalidate()
+        bufferTimer = nil
+    }
+
+    /// Add a frame to the buffer (in buffered mode)
+    /// - Parameter sampleBuffer: The video frame to buffer
+    /// - Returns: true if frame was added, false if skipped
+    @discardableResult
+    func bufferFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        let currentTime = CACurrentMediaTime()
+
+        // Rate limiting - still apply FPS limit even in buffer mode
+        guard currentTime - lastEncodedTime >= minimumInterval else {
+            framesSkipped += 1
+            return false
+        }
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            print("[GeminiEncoder] Failed to get pixel buffer from sample buffer")
+            return false
+        }
+
+        lastEncodedTime = currentTime
+
+        // Convert to CIImage
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // Calculate scale to fit within target size while maintaining aspect ratio
+        let originalSize = ciImage.extent.size
+        let scaleX = targetSize.width / originalSize.width
+        let scaleY = targetSize.height / originalSize.height
+        let scale = min(scaleX, scaleY, 1.0)  // Don't upscale
+
+        var processedImage = ciImage
+
+        // Scale down if needed
+        if scale < 1.0 {
+            processedImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+
+        // Render to CGImage
+        guard let cgImage = context.createCGImage(processedImage, from: processedImage.extent) else {
+            print("[GeminiEncoder] Failed to create CGImage")
+            return false
+        }
+
+        // Convert to JPEG
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: compressionQuality) else {
+            print("[GeminiEncoder] Failed to create JPEG data")
+            return false
+        }
+
+        let base64String = jpegData.base64EncodedString()
+
+        // Add to buffer with size limit
+        bufferLock.lock()
+        frameBuffer.append(base64String)
+        if frameBuffer.count > maxBufferSize {
+            // Remove oldest frames if buffer exceeds limit
+            frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+        }
+        bufferLock.unlock()
+
+        framesEncoded += 1
+        return true
+    }
+
+    /// Flush the buffer and return accumulated frames
+    /// - Returns: Array of base64 encoded frames
+    func flushBuffer() {
+        bufferLock.lock()
+        let frames = frameBuffer
+        frameBuffer.removeAll()
+        bufferLock.unlock()
+
+        lastBufferFlushTime = CACurrentMediaTime()
+
+        if !frames.isEmpty {
+            print("[GeminiEncoder] Flushing buffer with \(frames.count) frames")
+            onBufferReady?(frames)
+        }
+    }
+
+    /// Clear the buffer without sending
+    func clearBuffer() {
+        bufferLock.lock()
+        frameBuffer.removeAll()
+        bufferLock.unlock()
+    }
+
+    /// Get current buffer size
+    var currentBufferSize: Int {
+        bufferLock.lock()
+        let size = frameBuffer.count
+        bufferLock.unlock()
+        return size
     }
 
     // MARK: - Private Methods

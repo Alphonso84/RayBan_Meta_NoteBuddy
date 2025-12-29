@@ -17,7 +17,7 @@ import MWDATCamera
 // MARK: - Streaming Mode
 enum StreamingMode: String, CaseIterable, Identifiable {
     case liveView = "Live View"
-    case objectDetection = "Object Detection"
+    case objectDetection = "Object Tracking"
     case textReader = "Text Reader"
     case aiAssistant = "AI Assistant"
 
@@ -26,7 +26,7 @@ enum StreamingMode: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .liveView: return "video.fill"
-        case .objectDetection: return "viewfinder"
+        case .objectDetection: return "scope"
         case .textReader: return "doc.text.viewfinder"
         case .aiAssistant: return "sparkles"
         }
@@ -35,7 +35,7 @@ enum StreamingMode: String, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .liveView: return "View live stream only"
-        case .objectDetection: return "Detect objects using Vision"
+        case .objectDetection: return "Track objects with bounding boxes"
         case .textReader: return "Read text with OCR"
         case .aiAssistant: return "AI describes your view"
         }
@@ -86,7 +86,10 @@ class WearablesManager: ObservableObject {
     private var modeCancellable: AnyCancellable?
     private var streamStateCancellable: AnyCancellable?
 
-    /// Gemini Live manager for AI Assistant mode
+    /// Voice assistant for AI Assistant mode (simplified REST API)
+    let voiceAssistant = GeminiVoiceAssistant.shared
+
+    /// Legacy Gemini Live manager (kept for compatibility)
     let geminiLiveManager = GeminiLiveManager.shared
 
     private init() {
@@ -100,7 +103,7 @@ class WearablesManager: ObservableObject {
         }
     }
 
-    /// Set up observer for mode changes to auto-start/stop Gemini
+    /// Set up observer for mode changes
     private func setupModeChangeObserver() {
         modeCancellable = $currentMode
             .dropFirst()  // Skip initial value
@@ -108,14 +111,14 @@ class WearablesManager: ObservableObject {
                 guard let self = self else { return }
 
                 Task { @MainActor in
-                    if newMode == .aiAssistant {
-                        // Start Gemini session when entering AI Assistant mode
-                        if self.streamState == .streaming {
-                            self.geminiLiveManager.startSession()
-                        }
-                    } else {
-                        // End session when leaving AI Assistant mode
-                        self.geminiLiveManager.endSession()
+                    // Stop manual tracking when leaving object detection mode
+                    if newMode != .objectDetection {
+                        self.objectDetectionProcessor.stopManualTracking()
+                    }
+
+                    if newMode != .aiAssistant {
+                        // Reset voice assistant when leaving AI Assistant mode
+                        self.voiceAssistant.reset()
                     }
                 }
             }
@@ -125,17 +128,12 @@ class WearablesManager: ObservableObject {
     private func setupStreamStateObserver() {
         streamStateCancellable = $streamState
             .sink { [weak self] state in
-                guard let self = self, self.currentMode == .aiAssistant else { return }
+                guard let self = self else { return }
 
                 Task { @MainActor in
-                    if state == .streaming {
-                        // Auto-start Gemini when stream becomes active in AI mode
-                        if self.geminiLiveManager.state == .disconnected {
-                            self.geminiLiveManager.startSession()
-                        }
-                    } else if state == .stopped {
-                        // End session when streaming stops
-                        self.geminiLiveManager.endSession()
+                    if state == .stopped && self.currentMode == .aiAssistant {
+                        // Reset voice assistant when streaming stops
+                        self.voiceAssistant.reset()
                     }
                 }
             }
@@ -452,15 +450,13 @@ class WearablesManager: ObservableObject {
     private func handleVideoFrame(_ frame: VideoFrame) {
         let sampleBuffer = frame.sampleBuffer
 
-        // Process for object detection if in that mode
+        // Process for object detection/tracking if in that mode
         if currentMode == .objectDetection {
             objectDetectionProcessor.processFrame(sampleBuffer)
         }
 
-        // Process for AI Assistant mode (Gemini Live)
-        if currentMode == .aiAssistant {
-            geminiLiveManager.processFrame(sampleBuffer)
-        }
+        // AI Assistant mode: no continuous video processing
+        // Video is captured on-demand when user taps camera button
 
         // Handle recording separately (can record while detecting)
         guard isRecording,
@@ -486,5 +482,24 @@ class WearablesManager: ObservableObject {
     func resetDetection() {
         objectDetectionProcessor.reset()
         latestDetectionResult = nil
+    }
+
+    // MARK: - Manual Object Tracking
+
+    /// Start manual tracking at the specified point
+    /// - Parameter point: Normalized point in Vision coordinates (0-1, bottom-left origin)
+    func startManualTracking(at point: CGPoint) {
+        guard currentMode == .objectDetection else { return }
+        objectDetectionProcessor.startManualTracking(at: point)
+    }
+
+    /// Stop manual tracking and return to auto-detection
+    func stopManualTracking() {
+        objectDetectionProcessor.stopManualTracking()
+    }
+
+    /// Whether manual tracking is currently active
+    var isManualTrackingActive: Bool {
+        objectDetectionProcessor.isManualTracking
     }
 }

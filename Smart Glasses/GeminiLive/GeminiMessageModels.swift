@@ -82,32 +82,36 @@ struct GeminiRealtimeInputMessage: Encodable {
 }
 
 struct GeminiRealtimeInput: Encodable {
-    let mediaChunks: [GeminiMediaChunk]?
+    let audio: GeminiMediaChunk?
+    let video: GeminiMediaChunk?
 
-    init(mediaChunks: [GeminiMediaChunk]? = nil) {
-        self.mediaChunks = mediaChunks
+    init(audio: GeminiMediaChunk? = nil, video: GeminiMediaChunk? = nil) {
+        self.audio = audio
+        self.video = video
     }
 
     /// Convenience initializer for audio data
     static func audio(data: String) -> GeminiRealtimeInput {
-        GeminiRealtimeInput(mediaChunks: [
-            GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: data)
-        ])
+        GeminiRealtimeInput(
+            audio: GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: data),
+            video: nil
+        )
     }
 
     /// Convenience initializer for video frame
     static func video(data: String) -> GeminiRealtimeInput {
-        GeminiRealtimeInput(mediaChunks: [
-            GeminiMediaChunk(mimeType: "image/jpeg", data: data)
-        ])
+        GeminiRealtimeInput(
+            audio: nil,
+            video: GeminiMediaChunk(mimeType: "image/jpeg", data: data)
+        )
     }
 
     /// Convenience initializer for both audio and video
     static func audioVideo(audioData: String, videoData: String) -> GeminiRealtimeInput {
-        GeminiRealtimeInput(mediaChunks: [
-            GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: audioData),
-            GeminiMediaChunk(mimeType: "image/jpeg", data: videoData)
-        ])
+        GeminiRealtimeInput(
+            audio: GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: audioData),
+            video: GeminiMediaChunk(mimeType: "image/jpeg", data: videoData)
+        )
     }
 }
 

@@ -26,6 +26,13 @@ class GeminiLiveManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var lastTranscript: String = ""
 
+    /// Whether the user is currently recording voice (push-to-talk mode)
+    @Published var isRecordingVoice: Bool = false
+
+    /// Accumulated audio data during push-to-talk recording
+    private var recordedAudioData: [Data] = []
+    private let audioDataLock = NSLock()
+
     // MARK: - Configuration
 
     // Native audio model from docs: supports audio output via Live API
@@ -33,12 +40,14 @@ class GeminiLiveManager: ObservableObject {
     private let voiceName = "Puck"  // Available: Puck, Charon, Kore, Fenrir, Aoede
 
     private let systemPrompt = """
-    You are an AI assistant integrated into smart glasses. You can see what the user \
-    sees through their glasses camera and hear what they say. Provide helpful, concise \
-    responses about what you observe. Be conversational but brief since your responses \
-    are spoken aloud. Focus on being useful for everyday tasks like reading text, \
-    identifying objects, navigating, or answering questions about the environment. \
-    When the user first connects, greet them briefly and ask how you can help with what they're seeing.
+    You are an AI assistant integrated into smart glasses. You receive video updates every \
+    5 seconds showing what the user sees through their glasses camera, and you can hear \
+    what they say in real-time. When you receive new video frames, briefly describe any \
+    significant changes or interesting things you notice. Be conversational but brief since \
+    your responses are spoken aloud. Focus on being useful for everyday tasks like reading \
+    text, identifying objects, navigating, or answering questions about the environment. \
+    When the user first connects, greet them briefly and let them know you'll be watching \
+    and can answer questions about what they're seeing.
     """
 
     // MARK: - Components
@@ -62,11 +71,50 @@ class GeminiLiveManager: ObservableObject {
 
     private init() {
         setupDelegates()
+        setupFrameBufferCallback()
     }
 
     private func setupDelegates() {
         webSocketClient.delegate = self
         microphoneCapture.delegate = self
+    }
+
+    /// Setup callback for when buffered frames are ready to send
+    private func setupFrameBufferCallback() {
+        frameEncoder.onBufferReady = { [weak self] frames in
+            Task { @MainActor in
+                self?.sendBufferedFrames(frames)
+            }
+        }
+    }
+
+    /// Send accumulated video frames as a chunk to Gemini
+    private func sendBufferedFrames(_ frames: [String]) {
+        guard state == .ready || state == .streaming || state == .responding else { return }
+        guard !frames.isEmpty else { return }
+
+        print("[GeminiLive] Sending \(frames.count) buffered frames to Gemini")
+
+        // Send frames as a batch - we'll send the most recent frames
+        // For Gemini, sending multiple frames gives temporal context
+        for (index, frame) in frames.enumerated() {
+            // Add small delay between frames to avoid overwhelming the connection
+            // But for batch analysis, we send them all quickly
+            let input = GeminiRealtimeInput.video(data: frame)
+            let message = GeminiRealtimeInputMessage(realtimeInput: input)
+            webSocketClient.send(realtimeInput: message)
+
+            // Log first and last frame of batch
+            if index == 0 {
+                print("[GeminiLive] Sent first frame of batch")
+            } else if index == frames.count - 1 {
+                print("[GeminiLive] Sent last frame of batch (\(frames.count) total)")
+            }
+        }
+
+        if state == .ready {
+            state = .streaming
+        }
     }
 
     // MARK: - Public API
@@ -105,6 +153,10 @@ class GeminiLiveManager: ObservableObject {
         reconnectTask?.cancel()
         reconnectTask = nil
 
+        // Ensure buffer timer is stopped
+        frameEncoder.stopBufferTimer()
+        frameEncoder.clearBuffer()
+
         stopStreaming()
         webSocketClient.disconnect()
 
@@ -116,26 +168,31 @@ class GeminiLiveManager: ObservableObject {
     }
 
     /// Process a video frame from the glasses
+    /// In buffered mode, frames are accumulated and sent every 5 seconds
     func processFrame(_ sampleBuffer: CMSampleBuffer) {
         guard isStreamingFrames else { return }
         guard state == .ready || state == .streaming || state == .responding else { return }
 
-        // Encode frame (rate-limited internally to ~3 FPS)
-        guard let base64Frame = frameEncoder.encode(sampleBuffer) else {
-            return  // Frame skipped due to rate limiting
-        }
+        if frameEncoder.isBufferedMode {
+            // Buffered mode: accumulate frames and send every 5 seconds
+            frameEncoder.bufferFrame(sampleBuffer)
+        } else {
+            // Real-time mode: send immediately (legacy behavior)
+            guard let base64Frame = frameEncoder.encode(sampleBuffer) else {
+                return  // Frame skipped due to rate limiting
+            }
 
-        // Send video frame to Gemini
-        let input = GeminiRealtimeInput.video(data: base64Frame)
-        let message = GeminiRealtimeInputMessage(realtimeInput: input)
-        webSocketClient.send(realtimeInput: message)
+            let input = GeminiRealtimeInput.video(data: base64Frame)
+            let message = GeminiRealtimeInputMessage(realtimeInput: input)
+            webSocketClient.send(realtimeInput: message)
 
-        if state == .ready {
-            state = .streaming
+            if state == .ready {
+                state = .streaming
+            }
         }
     }
 
-    /// Start streaming audio and video
+    /// Start streaming video (audio is push-to-talk only)
     func startStreaming() {
         guard state == .ready || state == .streaming else {
             print("[GeminiLive] Cannot start streaming - not ready (state: \(state))")
@@ -163,25 +220,30 @@ class GeminiLiveManager: ObservableObject {
             print("[GeminiLive] Audio session configured: \(session.category.rawValue)")
             print("[GeminiLive] Audio route: \(session.currentRoute.outputs.map { $0.portName })")
 
-            // Start microphone
-            try microphoneCapture.startCapturing()
-            print("[GeminiLive] Microphone started")
+            // NOTE: Microphone is NOT started here - it's push-to-talk only
+            // User must press the speak button to record voice
 
-            // Start audio player (may fail but we can still receive audio)
+            // Start audio player for Gemini's responses
             do {
                 try audioPlayer.start()
                 print("[GeminiLive] Audio player started")
             } catch {
                 print("[GeminiLive] Audio player failed (will retry): \(error)")
-                // Don't fail completely - we can still send audio/video
+                // Don't fail completely - we can still send video
             }
 
             isStreamingFrames = true
-            isListening = true
+            isListening = false  // Not listening until user presses speak button
             conversationActive = true
             frameEncoder.reset()
 
-            print("[GeminiLive] Streaming started successfully")
+            // Start buffer timer for 5-second video chunks
+            if frameEncoder.isBufferedMode {
+                frameEncoder.startBufferTimer()
+                print("[GeminiLive] Streaming started with 5-second video chunks (push-to-talk audio)")
+            } else {
+                print("[GeminiLive] Streaming started in real-time mode (push-to-talk audio)")
+            }
         } catch {
             print("[GeminiLive] Failed to start streaming: \(error)")
             errorMessage = "Failed to start audio: \(error.localizedDescription)"
@@ -191,8 +253,20 @@ class GeminiLiveManager: ObservableObject {
 
     /// Stop streaming (pause, not disconnect)
     func stopStreaming() {
+        // Stop any ongoing voice recording
+        if isRecordingVoice {
+            isRecordingVoice = false
+            audioDataLock.lock()
+            recordedAudioData.removeAll()
+            audioDataLock.unlock()
+        }
+
         microphoneCapture.stopCapturing()
         audioPlayer.stop()
+
+        // Stop buffer timer and clear any pending frames
+        frameEncoder.stopBufferTimer()
+        frameEncoder.clearBuffer()
 
         isStreamingFrames = false
         isListening = false
@@ -208,6 +282,96 @@ class GeminiLiveManager: ObservableObject {
     func interruptResponse() {
         audioPlayer.interrupt()
         isSpeaking = false
+    }
+
+    // MARK: - Push-to-Talk Methods
+
+    /// Start recording voice (push-to-talk)
+    func startVoiceRecording() {
+        guard state == .ready || state == .streaming || state == .responding else {
+            print("[GeminiLive] Cannot start voice recording - not ready (state: \(state))")
+            return
+        }
+
+        // Interrupt any current Gemini response
+        if isSpeaking {
+            interruptResponse()
+        }
+
+        // Clear previous recording
+        audioDataLock.lock()
+        recordedAudioData.removeAll()
+        audioDataLock.unlock()
+
+        isRecordingVoice = true
+        isListening = true
+
+        // Start microphone if not already running
+        do {
+            if !microphoneCapture.isCapturing {
+                // Configure audio session
+                let session = AVAudioSession.sharedInstance()
+                if session.category != .playAndRecord {
+                    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                    try session.setCategory(
+                        .playAndRecord,
+                        mode: .voiceChat,
+                        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .mixWithOthers]
+                    )
+                }
+                try session.setActive(true)
+                try microphoneCapture.startCapturing()
+            }
+            print("[GeminiLive] Voice recording started")
+        } catch {
+            print("[GeminiLive] Failed to start voice recording: \(error)")
+            isRecordingVoice = false
+            isListening = false
+        }
+    }
+
+    /// Stop recording voice and send to Gemini
+    func stopVoiceRecording() {
+        guard isRecordingVoice else { return }
+
+        isRecordingVoice = false
+        isListening = false
+
+        // Stop microphone
+        microphoneCapture.stopCapturing()
+
+        // Send accumulated audio
+        audioDataLock.lock()
+        let allAudioData = recordedAudioData
+        recordedAudioData.removeAll()
+        audioDataLock.unlock()
+
+        if !allAudioData.isEmpty {
+            // Combine all audio chunks
+            var combinedData = Data()
+            for chunk in allAudioData {
+                combinedData.append(chunk)
+            }
+
+            print("[GeminiLive] Sending \(combinedData.count) bytes of recorded audio")
+
+            // Send the audio to Gemini
+            let base64Audio = combinedData.base64EncodedString()
+            let input = GeminiRealtimeInput.audio(data: base64Audio)
+            let message = GeminiRealtimeInputMessage(realtimeInput: input)
+            webSocketClient.send(realtimeInput: message)
+        } else {
+            print("[GeminiLive] No audio recorded")
+        }
+    }
+
+    /// Toggle voice recording (for button press)
+    func toggleVoiceRecording() {
+        if isRecordingVoice {
+            stopVoiceRecording()
+        } else {
+            startVoiceRecording()
+        }
     }
 
     // MARK: - Private Methods
@@ -354,6 +518,15 @@ extension GeminiLiveManager: GeminiMicrophoneCaptureDelegate {
 
     nonisolated func microphoneDidCapture(audioData: Data) {
         Task { @MainActor in
+            // In push-to-talk mode, accumulate audio instead of sending immediately
+            if self.isRecordingVoice {
+                self.audioDataLock.lock()
+                self.recordedAudioData.append(audioData)
+                self.audioDataLock.unlock()
+                return
+            }
+
+            // Legacy continuous mode (not used in push-to-talk)
             guard self.state == .streaming || self.state == .responding else { return }
 
             // Check audio level for barge-in (only interrupt on loud speech)
@@ -365,7 +538,7 @@ extension GeminiLiveManager: GeminiMicrophoneCaptureDelegate {
                 self.interruptResponse()
             }
 
-            // Send audio to Gemini
+            // Send audio to Gemini (only in continuous mode, not push-to-talk)
             let base64Audio = audioData.base64EncodedString()
             let input = GeminiRealtimeInput.audio(data: base64Audio)
             let message = GeminiRealtimeInputMessage(realtimeInput: input)
@@ -377,6 +550,8 @@ extension GeminiLiveManager: GeminiMicrophoneCaptureDelegate {
     nonisolated func microphoneDidFail(error: Error) {
         Task { @MainActor in
             self.errorMessage = "Microphone error: \(error.localizedDescription)"
+            self.isRecordingVoice = false
+            self.isListening = false
             print("[GeminiLive] Microphone error: \(error)")
         }
     }

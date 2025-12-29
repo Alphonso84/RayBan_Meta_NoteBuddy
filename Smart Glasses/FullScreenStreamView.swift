@@ -23,44 +23,53 @@ struct FullScreenStreamView: View {
             Color.black
                 .ignoresSafeArea()
 
-            // Video feed
-            Group {
-                if let frame = manager.latestFrameImage {
-                    Image(uiImage: frame)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: "video.slash")
-                            .font(.system(size: 60))
-                            .foregroundColor(.gray)
-                        Text("No video feed")
-                            .font(.headline)
-                            .foregroundColor(.gray)
-                        if manager.streamState == .stopped {
-                            Text("Start streaming to see video")
-                                .font(.caption)
-                                .foregroundColor(.gray.opacity(0.7))
+            // Video feed with tap gesture
+            GeometryReader { videoGeometry in
+                Group {
+                    if let frame = manager.latestFrameImage {
+                        Image(uiImage: frame)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        VStack(spacing: 16) {
+                            Image(systemName: "video.slash")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            Text("No video feed")
+                                .font(.headline)
+                                .foregroundColor(.gray)
+                            if manager.streamState == .stopped {
+                                Text("Start streaming to see video")
+                                    .font(.caption)
+                                    .foregroundColor(.gray.opacity(0.7))
+                            }
                         }
                     }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showControls.toggle()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    handleTap(at: location, in: videoGeometry.size)
                 }
-                resetHideControlsTimer()
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .onEnded { _ in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showControls.toggle()
+                            }
+                            resetHideControlsTimer()
+                        }
+                )
             }
             .ignoresSafeArea()
 
-            // Detection overlay (when in object detection mode)
+            // Object tracking overlay (when in object tracking mode)
             if manager.currentMode == .objectDetection {
                 DetectionOverlayView(
                     result: manager.latestDetectionResult,
-                    focusArea: .center,
-                    showFocusArea: showControls
+                    onClearSelection: manager.isManualTrackingActive ? {
+                        manager.stopManualTracking()
+                    } : nil
                 )
                 .ignoresSafeArea()
             }
@@ -68,7 +77,7 @@ struct FullScreenStreamView: View {
             // AI Assistant overlay (when in AI Assistant mode)
             if manager.currentMode == .aiAssistant {
                 AIAssistantOverlayView(
-                    geminiManager: manager.geminiLiveManager,
+                    voiceAssistant: manager.voiceAssistant,
                     wearablesManager: manager
                 )
                 .ignoresSafeArea()
@@ -319,6 +328,31 @@ struct FullScreenStreamView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Handle tap gesture for object selection or control toggle
+    /// - Parameters:
+    ///   - location: Tap location in SwiftUI coordinates (top-left origin)
+    ///   - containerSize: Size of the video container
+    private func handleTap(at location: CGPoint, in containerSize: CGSize) {
+        if manager.currentMode == .objectDetection {
+            // Convert SwiftUI coordinates to normalized Vision coordinates
+            // SwiftUI: top-left origin (0,0), points
+            // Vision: bottom-left origin (0,0), normalized 0-1
+            let normalizedX = location.x / containerSize.width
+            let normalizedY = 1.0 - (location.y / containerSize.height)  // Flip Y axis
+
+            let visionPoint = CGPoint(x: normalizedX, y: normalizedY)
+
+            // Start tracking at this point
+            manager.startManualTracking(at: visionPoint)
+        } else {
+            // Toggle controls for other modes
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showControls.toggle()
+            }
+            resetHideControlsTimer()
         }
     }
 }
