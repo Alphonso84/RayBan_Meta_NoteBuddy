@@ -28,7 +28,7 @@ class GeminiWebSocketClient: NSObject {
     private var urlSession: URLSession!
     private var pingTimer: Timer?
 
-    private let endpoint = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+    private let endpoint = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
     private(set) var isConnected = false
 
@@ -44,9 +44,8 @@ class GeminiWebSocketClient: NSObject {
         config.timeoutIntervalForResource = 600  // 10 minutes max session
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
 
-        // Gemini API uses snake_case (matching Python docs)
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Gemini API uses camelCase for JSON keys
+        // Do NOT use snake_case conversion - it breaks mimeType, realtimeInput, etc.
     }
 
     // MARK: - Connection Management
@@ -188,37 +187,72 @@ class GeminiWebSocketClient: NSObject {
 
             // Log message type for debugging
             if serverMessage.setupComplete != nil {
-                print("[GeminiWS] Received: setupComplete")
+                print("[GeminiWS] ✓ Received: setupComplete")
             }
             if serverMessage.serverContent != nil {
                 if serverMessage.serverContent?.turnComplete == true {
-                    print("[GeminiWS] Received: turnComplete")
+                    print("[GeminiWS] ✓ Received: turnComplete")
                 }
                 if serverMessage.serverContent?.interrupted == true {
-                    print("[GeminiWS] Received: interrupted")
+                    print("[GeminiWS] ✓ Received: interrupted")
                 }
+                if serverMessage.serverContent?.generationComplete == true {
+                    print("[GeminiWS] ✓ Received: generationComplete")
+                }
+            }
+
+            // Log transcription if present
+            if let inputTranscript = serverMessage.serverContent?.inputTranscription?.text {
+                print("[GeminiWS] 🎤 Input transcription: \(inputTranscript)")
+            }
+            if let outputTranscript = serverMessage.serverContent?.outputTranscription?.text {
+                print("[GeminiWS] 🔊 Output transcription: \(outputTranscript)")
             }
 
             // Extract audio data if present and notify delegate
             if let parts = serverMessage.serverContent?.modelTurn?.parts {
-                for part in parts {
+                print("[GeminiWS] 📦 Processing modelTurn with \(parts.count) parts")
+
+                var audioPartsCount = 0
+                var textPartsCount = 0
+
+                for (index, part) in parts.enumerated() {
                     // Check for text response
                     if let textContent = part.text {
-                        print("[GeminiWS] Received text: \(textContent.prefix(100))...")
+                        textPartsCount += 1
+                        print("[GeminiWS] Part \(index): TEXT = \"\(textContent.prefix(100))\"")
                     }
 
                     // Check for audio response
                     if let inlineData = part.inlineData {
-                        print("[GeminiWS] Received inlineData: mimeType=\(inlineData.mimeType), dataLength=\(inlineData.data.count)")
+                        print("[GeminiWS] Part \(index): INLINE_DATA mimeType=\"\(inlineData.mimeType)\" base64Length=\(inlineData.data.count)")
 
-                        if inlineData.mimeType.starts(with: "audio/"),
-                           let audioData = Data(base64Encoded: inlineData.data) {
-                            print("[GeminiWS] Decoded audio: \(audioData.count) bytes")
-                            DispatchQueue.main.async {
-                                self.delegate?.webSocketDidReceive(audioData: audioData)
+                        // Accept various audio formats from Gemini
+                        if inlineData.mimeType.starts(with: "audio/") || inlineData.mimeType.contains("pcm") || inlineData.mimeType.contains("wav") {
+                            audioPartsCount += 1
+                            if let audioData = Data(base64Encoded: inlineData.data) {
+                                print("[GeminiWS] ✓ Part \(index): Decoded AUDIO \(audioData.count) bytes - sending to delegate")
+                                DispatchQueue.main.async {
+                                    self.delegate?.webSocketDidReceive(audioData: audioData)
+                                }
+                            } else {
+                                print("[GeminiWS] ✗ Part \(index): ERROR - Failed to decode base64 audio data")
                             }
+                        } else {
+                            print("[GeminiWS] Part \(index): Non-audio inlineData (mimeType=\(inlineData.mimeType)), skipping")
                         }
                     }
+
+                    // Check if part has neither text nor inlineData
+                    if part.text == nil && part.inlineData == nil {
+                        print("[GeminiWS] Part \(index): Empty part (no text or inlineData)")
+                    }
+                }
+
+                // Summary log
+                print("[GeminiWS] 📊 ModelTurn summary: \(textPartsCount) text parts, \(audioPartsCount) audio parts")
+                if audioPartsCount == 0 && textPartsCount > 0 {
+                    print("[GeminiWS] ⚠️ WARNING: Response contains text but NO audio - check model and responseModalities config")
                 }
             }
 

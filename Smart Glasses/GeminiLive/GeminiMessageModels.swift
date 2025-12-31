@@ -49,6 +49,22 @@ struct GeminiSetupContent: Encodable {
     let model: String
     let generationConfig: GeminiGenerationConfig?
     let systemInstruction: GeminiSystemInstruction?
+    let outputAudioTranscription: GeminiTranscriptionConfig?
+
+    init(model: String,
+         generationConfig: GeminiGenerationConfig? = nil,
+         systemInstruction: GeminiSystemInstruction? = nil,
+         outputAudioTranscription: GeminiTranscriptionConfig? = nil) {
+        self.model = model
+        self.generationConfig = generationConfig
+        self.systemInstruction = systemInstruction
+        self.outputAudioTranscription = outputAudioTranscription
+    }
+}
+
+/// Empty config object to enable audio transcription
+struct GeminiTranscriptionConfig: Encodable {
+    // Empty object - just needs to exist
 }
 
 struct GeminiGenerationConfig: Encodable {
@@ -82,12 +98,22 @@ struct GeminiRealtimeInputMessage: Encodable {
 }
 
 struct GeminiRealtimeInput: Encodable {
+    let mediaChunks: [GeminiMediaChunk]?
+
+    // Legacy properties for backwards compatibility
     let audio: GeminiMediaChunk?
     let video: GeminiMediaChunk?
 
     init(audio: GeminiMediaChunk? = nil, video: GeminiMediaChunk? = nil) {
         self.audio = audio
         self.video = video
+        self.mediaChunks = nil
+    }
+
+    init(mediaChunks: [GeminiMediaChunk]) {
+        self.mediaChunks = mediaChunks
+        self.audio = nil
+        self.video = nil
     }
 
     /// Convenience initializer for audio data
@@ -106,12 +132,36 @@ struct GeminiRealtimeInput: Encodable {
         )
     }
 
-    /// Convenience initializer for both audio and video
+    /// Convenience initializer for both audio and video (legacy format)
     static func audioVideo(audioData: String, videoData: String) -> GeminiRealtimeInput {
         GeminiRealtimeInput(
             audio: GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: audioData),
             video: GeminiMediaChunk(mimeType: "image/jpeg", data: videoData)
         )
+    }
+
+    /// Combined audio + multiple video frames using mediaChunks array (v1beta format)
+    /// - Parameters:
+    ///   - audioData: Base64 encoded 16kHz PCM audio
+    ///   - videoFrames: Array of base64 encoded JPEG frames (most recent context)
+    static func combined(audioData: String, videoFrames: [String]) -> GeminiRealtimeInput {
+        var chunks: [GeminiMediaChunk] = []
+
+        // Add audio chunk first
+        chunks.append(GeminiMediaChunk(mimeType: "audio/pcm;rate=16000", data: audioData))
+
+        // Add video frames (provides visual context)
+        for frameData in videoFrames {
+            chunks.append(GeminiMediaChunk(mimeType: "image/jpeg", data: frameData))
+        }
+
+        return GeminiRealtimeInput(mediaChunks: chunks)
+    }
+
+    /// Video frames only using mediaChunks array
+    static func videoFrames(_ frames: [String]) -> GeminiRealtimeInput {
+        let chunks = frames.map { GeminiMediaChunk(mimeType: "image/jpeg", data: $0) }
+        return GeminiRealtimeInput(mediaChunks: chunks)
     }
 }
 

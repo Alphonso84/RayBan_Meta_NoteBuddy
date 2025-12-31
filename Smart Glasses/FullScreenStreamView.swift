@@ -77,7 +77,7 @@ struct FullScreenStreamView: View {
             // AI Assistant overlay (when in AI Assistant mode)
             if manager.currentMode == .aiAssistant {
                 AIAssistantOverlayView(
-                    voiceAssistant: manager.voiceAssistant,
+                    liveService: manager.geminiLiveService,
                     wearablesManager: manager
                 )
                 .ignoresSafeArea()

@@ -13,18 +13,105 @@ import MWDATCamera
 
 struct AIAssistantOverlayView: View {
     @ObservedObject var voiceAssistant: GeminiVoiceAssistant
+    @ObservedObject var liveService: GeminiLiveService
     @ObservedObject var wearablesManager: WearablesManager
+
+    /// Whether to use the new WebSocket-based live service
+    @AppStorage("useLiveAPI") private var useLiveAPI: Bool = true
 
     // Legacy initializer for compatibility
     init(geminiManager: GeminiLiveManager, wearablesManager: WearablesManager) {
         self.voiceAssistant = GeminiVoiceAssistant.shared
+        self.liveService = GeminiLiveService.shared
         self.wearablesManager = wearablesManager
     }
 
     init(voiceAssistant: GeminiVoiceAssistant, wearablesManager: WearablesManager) {
         self.voiceAssistant = voiceAssistant
+        self.liveService = GeminiLiveService.shared
         self.wearablesManager = wearablesManager
     }
+
+    init(liveService: GeminiLiveService, wearablesManager: WearablesManager) {
+        self.voiceAssistant = GeminiVoiceAssistant.shared
+        self.liveService = liveService
+        self.wearablesManager = wearablesManager
+    }
+
+    var body: some View {
+        if useLiveAPI {
+            // New WebSocket-based Live API UI
+            LiveServiceOverlayContent(
+                liveService: liveService,
+                wearablesManager: wearablesManager
+            )
+        } else {
+            // Legacy REST API UI
+            LegacyVoiceAssistantOverlayContent(
+                voiceAssistant: voiceAssistant,
+                wearablesManager: wearablesManager
+            )
+        }
+    }
+}
+
+// MARK: - Live Service Overlay (WebSocket-based)
+
+struct LiveServiceOverlayContent: View {
+    @ObservedObject var liveService: GeminiLiveService
+    @ObservedObject var wearablesManager: WearablesManager
+
+    var body: some View {
+        VStack {
+            // Top status area
+            HStack(spacing: 12) {
+                LiveServiceStatusBadge(liveService: liveService)
+
+                Spacer()
+
+                // Connection indicator
+                if liveService.state.isActive {
+                    LiveConnectionBadge()
+                }
+            }
+            .padding(.top, 60)
+            .padding(.horizontal, 16)
+
+            Spacer()
+
+            // Response text (when available and ready)
+            if !liveService.lastResponse.isEmpty && liveService.state == .ready {
+                LastResponseView(response: liveService.lastResponse)
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                    .transition(.opacity)
+            }
+
+            // Transcript (when available)
+            if !liveService.lastTranscript.isEmpty && liveService.state == .processing {
+                Text("You said: \"\(liveService.lastTranscript)\"")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.horizontal)
+                    .padding(.bottom, 10)
+            }
+
+            // Main controls
+            LiveServiceControls(
+                liveService: liveService,
+                wearablesManager: wearablesManager
+            )
+            .padding(.bottom, 120)  // Space for mode picker
+        }
+        .animation(.easeInOut(duration: 0.3), value: liveService.state)
+    }
+}
+
+// MARK: - Legacy Voice Assistant Overlay (REST-based)
+
+struct LegacyVoiceAssistantOverlayContent: View {
+    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
+    @ObservedObject var wearablesManager: WearablesManager
 
     var body: some View {
         VStack {
@@ -713,13 +800,272 @@ struct MainSpeakButton: View {
     }
 }
 
+// MARK: - Live Service Components
+
+struct LiveServiceStatusBadge: View {
+    @ObservedObject var liveService: GeminiLiveService
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 10, height: 10)
+                .shadow(color: statusColor.opacity(0.5), radius: 4)
+
+            Text(liveService.statusDescription)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+
+    private var statusColor: Color {
+        switch liveService.state {
+        case .disconnected: return .gray
+        case .connecting, .connected: return .yellow
+        case .ready: return .green
+        case .recording: return .red
+        case .processing: return .yellow
+        case .responding: return .purple
+        case .error: return .red
+        }
+    }
+}
+
+struct LiveConnectionBadge: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.caption)
+            Text("Live")
+                .font(.caption)
+                .fontWeight(.medium)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.green.opacity(0.8))
+        .clipShape(Capsule())
+    }
+}
+
+struct LiveServiceControls: View {
+    @ObservedObject var liveService: GeminiLiveService
+    @ObservedObject var wearablesManager: WearablesManager
+
+    @State private var showAPIKeyAlert = false
+    @State private var apiKeyInput = ""
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Error message
+            if let error = liveService.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(12)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            // API Key prompt or main controls
+            if !liveService.hasAPIKey {
+                Button {
+                    showAPIKeyAlert = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "key.fill")
+                        Text("Add API Key")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.orange)
+                    .clipShape(Capsule())
+                }
+                .alert("Gemini API Key", isPresented: $showAPIKeyAlert) {
+                    TextField("Enter API Key", text: $apiKeyInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button("Cancel", role: .cancel) { apiKeyInput = "" }
+                    Button("Save") {
+                        if GeminiAPIKeyManager.shared.setAPIKey(apiKeyInput) {
+                            apiKeyInput = ""
+                            // Auto-start session after saving key
+                            liveService.startSession()
+                        }
+                    }
+                } message: {
+                    Text("Enter your Gemini API key from Google AI Studio")
+                }
+            } else if liveService.state == .disconnected {
+                // Connect button
+                Button {
+                    liveService.startSession()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("Connect")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.blue)
+                    .clipShape(Capsule())
+                }
+            } else if liveService.state == .connecting || liveService.state == .connected {
+                // Connecting indicator
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    Text("Connecting...")
+                        .foregroundColor(.white)
+                }
+            } else {
+                // Main speak button
+                LiveServiceSpeakButton(liveService: liveService)
+            }
+        }
+    }
+}
+
+// MARK: - Live Service Speak Button
+
+struct LiveServiceSpeakButton: View {
+    @ObservedObject var liveService: GeminiLiveService
+
+    private var isEnabled: Bool {
+        liveService.state == .ready || liveService.state == .recording || liveService.state == .responding
+    }
+
+    private var buttonColor: Color {
+        switch liveService.state {
+        case .ready: return .green
+        case .recording: return .red
+        case .processing: return .yellow
+        case .responding: return .purple
+        default: return .gray
+        }
+    }
+
+    private var buttonIcon: String {
+        switch liveService.state {
+        case .ready: return "mic"
+        case .recording: return "waveform"
+        case .processing: return "ellipsis"
+        case .responding: return "speaker.wave.2.fill"
+        default: return "mic.slash"
+        }
+    }
+
+    private var buttonText: String {
+        switch liveService.state {
+        case .ready: return "Tap to Speak"
+        case .recording: return "Listening..."
+        case .processing: return "Thinking..."
+        case .responding: return "Speaking..."
+        default: return "Not Ready"
+        }
+    }
+
+    private var subtitleText: String? {
+        switch liveService.state {
+        case .recording: return "Auto-sends when you stop"
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Button {
+                if liveService.state == .responding {
+                    liveService.interruptResponse()
+                } else if liveService.state == .recording {
+                    // Manual send if user taps while recording
+                    liveService.stopRecordingAndSend()
+                } else {
+                    liveService.startRecording()
+                }
+            } label: {
+                VStack(spacing: 12) {
+                    ZStack {
+                        // Outer ring (animated when recording)
+                        Circle()
+                            .stroke(buttonColor.opacity(0.3), lineWidth: 4)
+                            .frame(width: 90, height: 90)
+                            .scaleEffect(liveService.isRecording ? 1.2 : 1.0)
+                            .opacity(liveService.isRecording ? 0.5 : 1.0)
+                            .animation(
+                                liveService.isRecording ?
+                                    .easeInOut(duration: 0.8).repeatForever(autoreverses: true) :
+                                    .default,
+                                value: liveService.isRecording
+                            )
+
+                        // Audio level indicator (when recording)
+                        if liveService.isRecording {
+                            Circle()
+                                .fill(buttonColor.opacity(0.3))
+                                .frame(width: 76, height: 76)
+                                .scaleEffect(1.0 + CGFloat(liveService.currentAudioLevel) * 0.5)
+                                .animation(.easeOut(duration: 0.1), value: liveService.currentAudioLevel)
+                        }
+
+                        // Main button circle
+                        Circle()
+                            .fill(buttonColor)
+                            .frame(width: 76, height: 76)
+                            .shadow(color: buttonColor.opacity(0.5), radius: 8, y: 4)
+
+                        // Icon
+                        if liveService.state == .processing {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(1.5)
+                        } else {
+                            Image(systemName: buttonIcon)
+                                .font(.system(size: 32))
+                                .foregroundColor(.white)
+                                .symbolEffect(.variableColor.iterative, isActive: liveService.isRecording)
+                        }
+                    }
+
+                    // Label
+                    Text(buttonText)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                }
+            }
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1.0 : 0.5)
+
+            // Subtitle hint
+            if let subtitle = subtitleText {
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: liveService.state)
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
     ZStack {
         Color.black
         AIAssistantOverlayView(
-            voiceAssistant: GeminiVoiceAssistant.shared,
+            liveService: GeminiLiveService.shared,
             wearablesManager: WearablesManager.shared
         )
     }

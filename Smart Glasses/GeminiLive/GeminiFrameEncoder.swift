@@ -52,6 +52,15 @@ class GeminiFrameEncoder {
     /// Last frame timestamp for representative frame selection
     private var lastBufferFlushTime: CFTimeInterval = 0
 
+    // MARK: - Ring Buffer Properties (for Live API on-demand context)
+
+    /// Ring buffer for keeping last N frames (for on-demand retrieval with voice queries)
+    private var ringBuffer: [(base64: String, timestamp: CFTimeInterval)] = []
+    private let ringBufferLock = NSLock()
+
+    /// Capacity of ring buffer (6 frames at ~2 FPS = ~3 seconds of context)
+    var ringBufferCapacity: Int = 6
+
     // MARK: - Initialization
 
     /// Initialize with target FPS (2-4 recommended for balance of quality and cost)
@@ -287,6 +296,105 @@ class GeminiFrameEncoder {
         bufferLock.lock()
         let size = frameBuffer.count
         bufferLock.unlock()
+        return size
+    }
+
+    // MARK: - Ring Buffer Methods (for Live API on-demand context)
+
+    /// Add a frame to the ring buffer (keeps last N frames for on-demand retrieval)
+    /// - Parameter sampleBuffer: The video frame to add
+    /// - Returns: true if frame was added, false if skipped due to rate limiting
+    @discardableResult
+    func addToRingBuffer(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        let currentTime = CACurrentMediaTime()
+
+        // Rate limiting - apply FPS limit
+        guard currentTime - lastEncodedTime >= minimumInterval else {
+            framesSkipped += 1
+            return false
+        }
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            print("[GeminiEncoder] Failed to get pixel buffer from sample buffer")
+            return false
+        }
+
+        lastEncodedTime = currentTime
+
+        // Convert to CIImage
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // Calculate scale to fit within target size while maintaining aspect ratio
+        let originalSize = ciImage.extent.size
+        let scaleX = targetSize.width / originalSize.width
+        let scaleY = targetSize.height / originalSize.height
+        let scale = min(scaleX, scaleY, 1.0)  // Don't upscale
+
+        var processedImage = ciImage
+
+        // Scale down if needed
+        if scale < 1.0 {
+            processedImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+
+        // Render to CGImage
+        guard let cgImage = context.createCGImage(processedImage, from: processedImage.extent) else {
+            print("[GeminiEncoder] Failed to create CGImage")
+            return false
+        }
+
+        // Convert to JPEG
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: compressionQuality) else {
+            print("[GeminiEncoder] Failed to create JPEG data")
+            return false
+        }
+
+        let base64String = jpegData.base64EncodedString()
+
+        // Add to ring buffer with capacity limit
+        ringBufferLock.lock()
+        ringBuffer.append((base64: base64String, timestamp: currentTime))
+        if ringBuffer.count > ringBufferCapacity {
+            ringBuffer.removeFirst()
+        }
+        ringBufferLock.unlock()
+
+        framesEncoded += 1
+        return true
+    }
+
+    /// Get all frames from the ring buffer (oldest to newest)
+    /// - Returns: Array of base64 encoded JPEG frames
+    func getRingBufferFrames() -> [String] {
+        ringBufferLock.lock()
+        let frames = ringBuffer.map { $0.base64 }
+        ringBufferLock.unlock()
+        return frames
+    }
+
+    /// Get frames from ring buffer and clear it
+    /// - Returns: Array of base64 encoded JPEG frames
+    func getAndClearRingBuffer() -> [String] {
+        ringBufferLock.lock()
+        let frames = ringBuffer.map { $0.base64 }
+        ringBuffer.removeAll()
+        ringBufferLock.unlock()
+        return frames
+    }
+
+    /// Clear the ring buffer
+    func clearRingBuffer() {
+        ringBufferLock.lock()
+        ringBuffer.removeAll()
+        ringBufferLock.unlock()
+    }
+
+    /// Get current ring buffer size
+    var currentRingBufferSize: Int {
+        ringBufferLock.lock()
+        let size = ringBuffer.count
+        ringBufferLock.unlock()
         return size
     }
 

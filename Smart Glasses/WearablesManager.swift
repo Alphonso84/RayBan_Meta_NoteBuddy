@@ -86,8 +86,11 @@ class WearablesManager: ObservableObject {
     private var modeCancellable: AnyCancellable?
     private var streamStateCancellable: AnyCancellable?
 
-    /// Voice assistant for AI Assistant mode (simplified REST API)
+    /// Voice assistant for AI Assistant mode (simplified REST API - legacy)
     let voiceAssistant = GeminiVoiceAssistant.shared
+
+    /// Gemini Live API service (WebSocket-based real-time assistant)
+    let geminiLiveService = GeminiLiveService.shared
 
     /// Legacy Gemini Live manager (kept for compatibility)
     let geminiLiveManager = GeminiLiveManager.shared
@@ -116,9 +119,14 @@ class WearablesManager: ObservableObject {
                         self.objectDetectionProcessor.stopManualTracking()
                     }
 
-                    if newMode != .aiAssistant {
-                        // Reset voice assistant when leaving AI Assistant mode
+                    // Handle AI Assistant mode transitions
+                    if newMode == .aiAssistant {
+                        // Start live service session when entering AI Assistant mode
+                        self.geminiLiveService.startSession()
+                    } else {
+                        // Reset services when leaving AI Assistant mode
                         self.voiceAssistant.reset()
+                        self.geminiLiveService.reset()
                     }
                 }
             }
@@ -132,8 +140,9 @@ class WearablesManager: ObservableObject {
 
                 Task { @MainActor in
                     if state == .stopped && self.currentMode == .aiAssistant {
-                        // Reset voice assistant when streaming stops
+                        // Reset voice assistant and live service when streaming stops
                         self.voiceAssistant.reset()
+                        self.geminiLiveService.reset()
                     }
                 }
             }
@@ -455,8 +464,10 @@ class WearablesManager: ObservableObject {
             objectDetectionProcessor.processFrame(sampleBuffer)
         }
 
-        // AI Assistant mode: no continuous video processing
-        // Video is captured on-demand when user taps camera button
+        // AI Assistant mode: buffer frames for live service context
+        if currentMode == .aiAssistant {
+            geminiLiveService.bufferVideoFrame(sampleBuffer)
+        }
 
         // Handle recording separately (can record while detecting)
         guard isRecording,

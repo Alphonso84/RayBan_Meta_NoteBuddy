@@ -109,13 +109,16 @@ class GeminiAudioPlayer {
 
         audioChunksReceived += 1
 
+        print("[GeminiAudio] 🔊 enqueue() called - chunk #\(audioChunksReceived), \(audioData.count) bytes")
+        print("[GeminiAudio] State: isPlaying=\(isPlaying), playerNode=\(playerNode != nil), audioEngine=\(audioEngine != nil)")
+
         guard isPlaying, let playerNode = playerNode else {
-            print("[GeminiAudio] Cannot enqueue - not playing")
+            print("[GeminiAudio] ❌ Cannot enqueue - not playing or no playerNode")
             return
         }
 
         guard audioData.count > 0 else {
-            print("[GeminiAudio] Empty audio data received")
+            print("[GeminiAudio] ❌ Empty audio data received")
             return
         }
 
@@ -179,14 +182,13 @@ class GeminiAudioPlayer {
         playerNode.scheduleBuffer(outputBuffer) { [weak self] in
             DispatchQueue.main.async {
                 self?.audioChunksPlayed += 1
+                print("[GeminiAudio] ✓ Finished playing chunk, total played: \(self?.audioChunksPlayed ?? 0)")
             }
         }
 
         hasScheduledAudio = true
 
-        if audioChunksReceived % 10 == 1 {
-            print("[GeminiAudio] Audio chunk #\(audioChunksReceived): \(audioData.count) bytes, \(frameCount) frames")
-        }
+        print("[GeminiAudio] ✓ Scheduled chunk #\(audioChunksReceived): \(audioData.count) bytes → \(frameCount) frames for playback")
     }
 
     /// Interrupt current playback (when user starts speaking - barge-in)

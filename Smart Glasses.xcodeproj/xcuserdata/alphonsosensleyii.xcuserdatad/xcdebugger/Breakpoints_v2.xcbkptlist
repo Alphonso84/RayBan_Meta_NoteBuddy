@@ -16,8 +16,8 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "186"
             endingLineNumber = "186"
-            landmarkName = "startUnregistration()"
-            landmarkType = "7">
+            landmarkName = "WearablesManager"
+            landmarkType = "3">
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
@@ -32,38 +32,8 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "187"
             endingLineNumber = "187"
-            landmarkName = "startUnregistration()"
+            landmarkName = "startRegistration()"
             landmarkType = "7">
-            <Locations>
-               <Location
-                  uuid = "F004403C-E88A-46D7-A201-91BB799F8789 - a71bc65848ab2db0"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(1) suspend resume partial function for closure #1 () async -&gt; () in Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
-                  moduleName = "Smart Glasses.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "187"
-                  endingLineNumber = "187">
-               </Location>
-               <Location
-                  uuid = "F004403C-E88A-46D7-A201-91BB799F8789 - 348dfa3cee74e9be"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(3) suspend resume partial function for closure #1 () async -&gt; () in Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
-                  moduleName = "Smart Glasses.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "187"
-                  endingLineNumber = "187">
-               </Location>
-            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
@@ -78,8 +48,38 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "189"
             endingLineNumber = "189"
-            landmarkName = "startUnregistration()"
+            landmarkName = "startRegistration()"
             landmarkType = "7">
+            <Locations>
+               <Location
+                  uuid = "C4F07BBA-C08E-49BC-BC4B-BEB9054E819C - b65a9f6e499d82db"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
+                  moduleName = "Smart Glasses.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "189"
+                  endingLineNumber = "189">
+               </Location>
+               <Location
+                  uuid = "C4F07BBA-C08E-49BC-BC4B-BEB9054E819C - bd3fdff4eb261eab"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () async -&gt; () in Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
+                  moduleName = "Smart Glasses.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "189"
+                  endingLineNumber = "189">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>
