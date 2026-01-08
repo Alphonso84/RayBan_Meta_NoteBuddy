@@ -86,11 +86,8 @@ class WearablesManager: ObservableObject {
     private var modeCancellable: AnyCancellable?
     private var streamStateCancellable: AnyCancellable?
 
-    /// Voice assistant for AI Assistant mode (simplified REST API)
-    let voiceAssistant = GeminiVoiceAssistant.shared
-
-    /// Legacy Gemini Live manager (kept for compatibility)
-    let geminiLiveManager = GeminiLiveManager.shared
+    /// Voice assistant for AI Assistant mode (OpenAI Realtime API)
+    let voiceAssistant = OpenAIVoiceAssistant.shared
 
     private init() {
         deviceSelector = AutoDeviceSelector(wearables: Wearables.shared)
@@ -240,6 +237,13 @@ class WearablesManager: ObservableObject {
         // Cancel any existing stream first
         stopStream()
 
+        // Debug: Log device and registration state
+        print("[WearablesManager] Starting stream...")
+        print("[WearablesManager] Registration state: \(registrationStateDescription)")
+        print("[WearablesManager] Device status: \(deviceStatus)")
+        print("[WearablesManager] Active device: \(deviceSelector.activeDevice ?? "none")")
+        print("[WearablesManager] Camera status: \(cameraStatus ?? "unknown")")
+
         // Create a new StreamSession with our device selector
         let session = StreamSession(deviceSelector: deviceSelector)
         streamSession = session
@@ -253,8 +257,13 @@ class WearablesManager: ObservableObject {
         }
 
         // Subscribe to errors
-        errorToken = session.errorPublisher.listen { (error: StreamSessionError) in
-            print("Stream error: \(error)")
+        errorToken = session.errorPublisher.listen { [weak self] (error: StreamSessionError) in
+            print("[WearablesManager] ⚠️ Stream error: \(error)")
+            // Log additional context
+            Task { @MainActor in
+                guard let self = self else { return }
+                print("[WearablesManager] Error context - Registration: \(self.registrationStateDescription), Device: \(self.deviceStatus)")
+            }
         }
 
         // Subscribe to video frames

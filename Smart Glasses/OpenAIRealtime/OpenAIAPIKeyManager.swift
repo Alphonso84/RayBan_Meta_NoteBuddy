@@ -1,29 +1,29 @@
 //
-//  GeminiAPIKeyManager.swift
+//  OpenAIAPIKeyManager.swift
 //  Smart Glasses
 //
-//  Securely stores Gemini API key in iOS Keychain
+//  Securely stores OpenAI API key in iOS Keychain
 //
 
 import Foundation
 import Security
 
-class GeminiAPIKeyManager {
+class OpenAIAPIKeyManager {
 
     // MARK: - Singleton
 
-    static let shared = GeminiAPIKeyManager()
+    static let shared = OpenAIAPIKeyManager()
 
     // MARK: - Properties
 
-    private let service = "com.smartglasses.gemini"
+    private let service = "com.smartglasses.openai"
     private let account = "api_key"
 
     private init() {}
 
     // MARK: - Public API
 
-    /// Get or set the Gemini API key
+    /// Get or set the OpenAI API key
     var apiKey: String? {
         get { loadFromKeychain() }
         set {
@@ -64,9 +64,9 @@ class GeminiAPIKeyManager {
         let status = SecItemAdd(query as CFDictionary, nil)
 
         if status != errSecSuccess {
-            print("[GeminiAPIKey] Failed to save API key: \(status)")
+            print("[OpenAIAPIKey] Failed to save API key: \(status)")
         } else {
-            print("[GeminiAPIKey] API key saved to Keychain")
+            print("[OpenAIAPIKey] API key saved to Keychain")
         }
     }
 
@@ -101,21 +101,22 @@ class GeminiAPIKeyManager {
         let status = SecItemDelete(query as CFDictionary)
 
         if status != errSecSuccess && status != errSecItemNotFound {
-            print("[GeminiAPIKey] Failed to delete API key: \(status)")
+            print("[OpenAIAPIKey] Failed to delete API key: \(status)")
         }
     }
 }
 
 // MARK: - API Key Validation
 
-extension GeminiAPIKeyManager {
+extension OpenAIAPIKeyManager {
 
     /// Basic validation of API key format
-    /// Note: This doesn't verify the key is valid with Google, just that it looks reasonable
+    /// Note: This doesn't verify the key is valid with OpenAI, just that it looks reasonable
     func isValidFormat(_ key: String) -> Bool {
-        // Gemini API keys are typically 39 characters starting with "AIza"
+        // OpenAI API keys typically start with "sk-" and are 51+ characters
+        // Project keys start with "sk-proj-"
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedKey.count >= 30 && trimmedKey.hasPrefix("AIza")
+        return trimmedKey.count >= 40 && trimmedKey.hasPrefix("sk-")
     }
 
     /// Validate and save an API key
@@ -126,7 +127,7 @@ extension GeminiAPIKeyManager {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard isValidFormat(trimmedKey) else {
-            print("[GeminiAPIKey] Invalid API key format")
+            print("[OpenAIAPIKey] Invalid API key format")
             return false
         }
 

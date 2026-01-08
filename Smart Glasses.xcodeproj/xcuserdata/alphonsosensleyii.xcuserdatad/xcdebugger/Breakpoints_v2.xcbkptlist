@@ -16,69 +16,23 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "186"
             endingLineNumber = "186"
-            landmarkName = "startUnregistration()"
-            landmarkType = "7">
+            landmarkName = "WearablesManager"
+            landmarkType = "3">
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
-            uuid = "F004403C-E88A-46D7-A201-91BB799F8789"
-            shouldBeEnabled = "Yes"
+            uuid = "8C8D58B0-2BD3-4B0E-B8D4-0DBC5C8E8DD2"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "Smart Glasses/WearablesManager.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "187"
-            endingLineNumber = "187"
-            landmarkName = "startUnregistration()"
-            landmarkType = "7">
-            <Locations>
-               <Location
-                  uuid = "F004403C-E88A-46D7-A201-91BB799F8789 - a71bc65848ab2db0"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(1) suspend resume partial function for closure #1 () async -&gt; () in Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
-                  moduleName = "Smart Glasses.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "187"
-                  endingLineNumber = "187">
-               </Location>
-               <Location
-                  uuid = "F004403C-E88A-46D7-A201-91BB799F8789 - 348dfa3cee74e9be"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(3) suspend resume partial function for closure #1 () async -&gt; () in Smart_Glasses.WearablesManager.startRegistration() -&gt; ()"
-                  moduleName = "Smart Glasses.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/alphonsosensleyii/Desktop/Swift%20Ideas/Swift%20Learning/Smart%20Glasses/Smart%20Glasses/WearablesManager.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "187"
-                  endingLineNumber = "187">
-               </Location>
-            </Locations>
-         </BreakpointContent>
-      </BreakpointProxy>
-      <BreakpointProxy
-         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
-         <BreakpointContent
-            uuid = "C4F07BBA-C08E-49BC-BC4B-BEB9054E819C"
-            shouldBeEnabled = "Yes"
-            ignoreCount = "0"
-            continueAfterRunningActions = "No"
-            filePath = "Smart Glasses/WearablesManager.swift"
-            startingColumnNumber = "9223372036854775807"
-            endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "189"
-            endingLineNumber = "189"
-            landmarkName = "startUnregistration()"
+            startingLineNumber = "254"
+            endingLineNumber = "254"
+            landmarkName = "startStream()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

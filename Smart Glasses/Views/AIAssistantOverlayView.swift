@@ -3,7 +3,7 @@
 //  Smart Glasses
 //
 //  Overlay UI for AI Assistant mode - Meta Ray-Bans style
-//  Tap to speak, optional photo for vision questions
+//  Speak or type to interact, automatic vision with photos sent every 5 seconds
 //
 
 import SwiftUI
@@ -12,16 +12,15 @@ import MWDATCamera
 // MARK: - Main Overlay View
 
 struct AIAssistantOverlayView: View {
-    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
+    @ObservedObject var voiceAssistant: OpenAIVoiceAssistant
     @ObservedObject var wearablesManager: WearablesManager
 
-    // Legacy initializer for compatibility
-    init(geminiManager: GeminiLiveManager, wearablesManager: WearablesManager) {
-        self.voiceAssistant = GeminiVoiceAssistant.shared
-        self.wearablesManager = wearablesManager
-    }
+    // Text input state (lifted up so text field can be at top)
+    @State private var showTextInput = false
+    @State private var textInput = ""
+    @FocusState private var isTextFieldFocused: Bool
 
-    init(voiceAssistant: GeminiVoiceAssistant, wearablesManager: WearablesManager) {
+    init(voiceAssistant: OpenAIVoiceAssistant, wearablesManager: WearablesManager) {
         self.voiceAssistant = voiceAssistant
         self.wearablesManager = wearablesManager
     }
@@ -34,19 +33,39 @@ struct AIAssistantOverlayView: View {
 
                 Spacer()
 
-                // Photo indicator (when photo is queued)
-                if voiceAssistant.includePhoto {
-                    PhotoQueuedBadge()
+                // Auto vision indicator (when session is active)
+                if voiceAssistant.state == .recording ||
+                   voiceAssistant.state == .processing ||
+                   voiceAssistant.state == .speaking {
+                    AutoVisionBadge()
                         .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(.top, 60)
             .padding(.horizontal, 16)
 
+            // Text input field at top (when typing)
+            if showTextInput {
+                TopTextInputView(
+                    text: $textInput,
+                    isFocused: $isTextFieldFocused,
+                    onSubmit: {
+                        if !textInput.isEmpty {
+                            voiceAssistant.sendTextMessage(textInput)
+                            textInput = ""
+                            showTextInput = false
+                        }
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             Spacer()
 
             // Response text (when available and not speaking)
-            if !voiceAssistant.lastResponse.isEmpty && voiceAssistant.state == .idle {
+            if !voiceAssistant.lastResponse.isEmpty && voiceAssistant.state == .idle && !showTextInput {
                 LastResponseView(response: voiceAssistant.lastResponse)
                     .padding(.horizontal)
                     .padding(.bottom, 20)
@@ -56,170 +75,67 @@ struct AIAssistantOverlayView: View {
             // Main controls
             VoiceAssistantControls(
                 voiceAssistant: voiceAssistant,
-                wearablesManager: wearablesManager
+                showTextInput: $showTextInput,
+                onToggleTextInput: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showTextInput.toggle()
+                        if showTextInput {
+                            isTextFieldFocused = true
+                        } else {
+                            textInput = ""
+                        }
+                    }
+                }
             )
             .padding(.bottom, 120)  // Space for mode picker
         }
         .animation(.easeInOut(duration: 0.3), value: voiceAssistant.state)
-        .animation(.easeInOut(duration: 0.2), value: voiceAssistant.includePhoto)
+        .animation(.easeInOut(duration: 0.2), value: showTextInput)
     }
 }
 
-// MARK: - Status Badge
+// MARK: - Top Text Input View
 
-struct StatusBadgeView: View {
-    @ObservedObject var geminiManager: GeminiLiveManager
+struct TopTextInputView: View {
+    @Binding var text: String
+    var isFocused: FocusState<Bool>.Binding
+    var onSubmit: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Connection status dot
-            Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-                .shadow(color: statusColor.opacity(0.5), radius: 4)
-
-            Text(statusText)
-                .font(.caption)
-                .fontWeight(.medium)
+        VStack(spacing: 12) {
+            // Text field styled like LastResponseView
+            TextField("Type your message...", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
                 .foregroundColor(.white)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
-    }
+                .multilineTextAlignment(.center)
+                .lineLimit(1...4)
+                .focused(isFocused)
+                .submitLabel(.send)
+                .onSubmit(onSubmit)
+                .padding()
+                .frame(minHeight: 50)
+                .background(Color.black.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-    private var statusColor: Color {
-        switch geminiManager.state {
-        case .disconnected:
-            return .gray
-        case .connecting, .configuring:
-            return .yellow
-        case .connected, .ready:
-            return .blue
-        case .streaming, .responding:
-            return .green
-        case .error:
-            return .red
-        case .reconnecting:
-            return .orange
-        }
-    }
-
-    private var statusText: String {
-        switch geminiManager.state {
-        case .disconnected:
-            return "Disconnected"
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        case .configuring:
-            return "Setting up..."
-        case .ready:
-            return "Ready"
-        case .streaming:
-            return "AI Active"
-        case .responding:
-            return "Responding"
-        case .error:
-            return "Error"
-        case .reconnecting(let attempt):
-            return "Reconnecting (\(attempt))"
-        }
-    }
-}
-
-// MARK: - Compact Conversation Indicator (for top bar)
-
-struct CompactConversationIndicator: View {
-    @ObservedObject var geminiManager: GeminiLiveManager
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if geminiManager.isSpeaking {
-                // Compact speaking animation
-                HStack(spacing: 2) {
-                    ForEach(0..<3, id: \.self) { index in
-                        CompactSpeakingBar(delay: Double(index) * 0.1)
+            // Send button
+            if !text.isEmpty {
+                Button(action: onSubmit) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.circle.fill")
+                        Text("Send")
                     }
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.green)
+                    .clipShape(Capsule())
                 }
-                .frame(width: 20, height: 16)
-
-                Text("AI Speaking")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-            } else if geminiManager.isRecordingVoice {
-                // Recording indicator
-                Image(systemName: "mic.fill")
-                    .font(.caption)
-                    .foregroundColor(.white)
-                    .symbolEffect(.pulse)
-
-                Text("Recording...")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            geminiManager.isSpeaking ? Color.purple.opacity(0.8) :
-            geminiManager.isRecordingVoice ? Color.red.opacity(0.8) :
-            Color.green.opacity(0.8)
-        )
-        .clipShape(Capsule())
-    }
-}
-
-struct CompactSpeakingBar: View {
-    let delay: Double
-    @State private var isAnimating = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 1)
-            .fill(Color.white)
-            .frame(width: 3, height: isAnimating ? 14 : 4)
-            .animation(
-                .easeInOut(duration: 0.3)
-                .repeatForever(autoreverses: true)
-                .delay(delay),
-                value: isAnimating
-            )
-            .onAppear {
-                isAnimating = true
-            }
-    }
-}
-
-// MARK: - Conversation Indicator (legacy, kept for reference)
-
-struct ConversationIndicatorView: View {
-    @ObservedObject var geminiManager: GeminiLiveManager
-
-    var body: some View {
-        VStack(spacing: 16) {
-            if geminiManager.isSpeaking {
-                // Speaking animation
-                SpeakingAnimationView()
-
-                Text("Gemini is speaking...")
-                    .font(.caption)
-                    .foregroundColor(.white)
-            } else if geminiManager.isListening {
-                // Listening indicator
-                ListeningIndicatorView()
-
-                Text("Listening...")
-                    .font(.caption)
-                    .foregroundColor(.white)
-            }
-        }
-        .padding(24)
-        .background(Color.black.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -293,165 +209,10 @@ struct ListeningIndicatorView: View {
     }
 }
 
-// MARK: - Controls View
-
-struct AIAssistantControlsView: View {
-    @ObservedObject var geminiManager: GeminiLiveManager
-    let isStreaming: Bool
-
-    @State private var showAPIKeyAlert = false
-    @State private var apiKeyInput = ""
-
-    var body: some View {
-        VStack(spacing: 16) {
-            // Error message if any
-            if let error = geminiManager.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                    .padding(12)
-                    .background(Color.black.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-
-            // API Key prompt if not configured
-            if !geminiManager.hasAPIKey {
-                Button {
-                    showAPIKeyAlert = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "key.fill")
-                        Text("Add API Key to Start")
-                    }
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.orange)
-                    .clipShape(Capsule())
-                }
-                .alert("Gemini API Key", isPresented: $showAPIKeyAlert) {
-                    TextField("Enter API Key", text: $apiKeyInput)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("Cancel", role: .cancel) {
-                        apiKeyInput = ""
-                    }
-                    Button("Save") {
-                        if GeminiAPIKeyManager.shared.setAPIKey(apiKeyInput) {
-                            apiKeyInput = ""
-                            // Auto-start after saving key
-                            if isStreaming {
-                                geminiManager.startSession()
-                            }
-                        }
-                    }
-                } message: {
-                    Text("Enter your Gemini API key from Google AI Studio")
-                }
-            } else if geminiManager.conversationActive {
-                // Push-to-Talk Speak Button
-                PushToTalkButton(geminiManager: geminiManager)
-            }
-        }
-    }
-}
-
-// MARK: - Push-to-Talk Button
-
-struct PushToTalkButton: View {
-    @ObservedObject var geminiManager: GeminiLiveManager
-    @State private var isPressing = false
-
-    private var isEnabled: Bool {
-        geminiManager.state == .ready ||
-        geminiManager.state == .streaming ||
-        geminiManager.state == .responding
-    }
-
-    private var buttonColor: Color {
-        if geminiManager.isRecordingVoice {
-            return .red
-        } else if geminiManager.isSpeaking {
-            return .purple.opacity(0.6)
-        } else {
-            return .green
-        }
-    }
-
-    private var buttonIcon: String {
-        if geminiManager.isRecordingVoice {
-            return "mic.fill"
-        } else if geminiManager.isSpeaking {
-            return "speaker.wave.2.fill"
-        } else {
-            return "mic"
-        }
-    }
-
-    private var buttonText: String {
-        if geminiManager.isRecordingVoice {
-            return "Tap to Send"
-        } else if geminiManager.isSpeaking {
-            return "AI Speaking..."
-        } else {
-            return "Tap to Speak"
-        }
-    }
-
-    var body: some View {
-        Button {
-            geminiManager.toggleVoiceRecording()
-        } label: {
-            VStack(spacing: 12) {
-                ZStack {
-                    // Outer ring (animated when recording)
-                    Circle()
-                        .stroke(buttonColor.opacity(0.3), lineWidth: 4)
-                        .frame(width: 90, height: 90)
-                        .scaleEffect(geminiManager.isRecordingVoice ? 1.2 : 1.0)
-                        .opacity(geminiManager.isRecordingVoice ? 0.5 : 1.0)
-                        .animation(
-                            geminiManager.isRecordingVoice ?
-                                .easeInOut(duration: 0.8).repeatForever(autoreverses: true) :
-                                .default,
-                            value: geminiManager.isRecordingVoice
-                        )
-
-                    // Main button circle
-                    Circle()
-                        .fill(buttonColor)
-                        .frame(width: 76, height: 76)
-                        .shadow(color: buttonColor.opacity(0.5), radius: 8, y: 4)
-
-                    // Icon
-                    Image(systemName: buttonIcon)
-                        .font(.system(size: 32))
-                        .foregroundColor(.white)
-                        .symbolEffect(.pulse, isActive: geminiManager.isRecordingVoice)
-                }
-
-                // Label
-                Text(buttonText)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-            }
-        }
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1.0 : 0.5)
-        .animation(.easeInOut(duration: 0.2), value: geminiManager.isRecordingVoice)
-        .animation(.easeInOut(duration: 0.2), value: geminiManager.isSpeaking)
-    }
-}
-
-// MARK: - New Voice Assistant Components
+// MARK: - Voice Assistant Components
 
 struct AssistantStatusBadge: View {
-    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
+    @ObservedObject var voiceAssistant: OpenAIVoiceAssistant
 
     var body: some View {
         HStack(spacing: 8) {
@@ -482,12 +243,24 @@ struct AssistantStatusBadge: View {
     }
 }
 
-struct PhotoQueuedBadge: View {
+struct AutoVisionBadge: View {
+    @State private var dotOpacity: Double = 1.0
+
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "camera.fill")
+            Circle()
+                .fill(Color.white)
+                .frame(width: 6, height: 6)
+                .opacity(dotOpacity)
+                .animation(
+                    .easeInOut(duration: 0.5).repeatForever(autoreverses: true),
+                    value: dotOpacity
+                )
+                .onAppear { dotOpacity = 0.3 }
+
+            Image(systemName: "eye.fill")
                 .font(.caption)
-            Text("Photo Ready")
+            Text("Auto Vision")
                 .font(.caption)
                 .fontWeight(.medium)
         }
@@ -515,8 +288,9 @@ struct LastResponseView: View {
 }
 
 struct VoiceAssistantControls: View {
-    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
-    @ObservedObject var wearablesManager: WearablesManager
+    @ObservedObject var voiceAssistant: OpenAIVoiceAssistant
+    @Binding var showTextInput: Bool
+    var onToggleTextInput: () -> Void
 
     @State private var showAPIKeyAlert = false
     @State private var apiKeyInput = ""
@@ -550,65 +324,61 @@ struct VoiceAssistantControls: View {
                     .background(Color.orange)
                     .clipShape(Capsule())
                 }
-                .alert("Gemini API Key", isPresented: $showAPIKeyAlert) {
+                .alert("OpenAI API Key", isPresented: $showAPIKeyAlert) {
                     TextField("Enter API Key", text: $apiKeyInput)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button("Cancel", role: .cancel) { apiKeyInput = "" }
                     Button("Save") {
-                        if GeminiAPIKeyManager.shared.setAPIKey(apiKeyInput) {
+                        if OpenAIAPIKeyManager.shared.setAPIKey(apiKeyInput) {
                             apiKeyInput = ""
                         }
                     }
                 } message: {
-                    Text("Enter your Gemini API key from Google AI Studio")
+                    Text("Enter your OpenAI API key from platform.openai.com")
                 }
             } else {
                 // Main control buttons
-                HStack(spacing: 40) {
-                    // Camera button - capture photo for vision
-                    VisionCaptureButton(
-                        voiceAssistant: voiceAssistant,
-                        wearablesManager: wearablesManager
-                    )
+                HStack(spacing: 30) {
+                    // Auto vision indicator
+                    AutoVisionIndicator(voiceAssistant: voiceAssistant)
 
                     // Main speak button
                     MainSpeakButton(voiceAssistant: voiceAssistant)
+
+                    // Text input toggle button
+                    TextInputButton(
+                        isActive: showTextInput,
+                        isEnabled: voiceAssistant.state == .idle || voiceAssistant.state.isError,
+                        action: onToggleTextInput
+                    )
                 }
             }
         }
     }
 }
 
-// MARK: - Vision Capture Button
+// MARK: - Text Input Button
 
-struct VisionCaptureButton: View {
-    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
-    @ObservedObject var wearablesManager: WearablesManager
-
-    private var isEnabled: Bool {
-        voiceAssistant.state == .idle && wearablesManager.latestFrameImage != nil
-    }
+struct TextInputButton: View {
+    let isActive: Bool
+    let isEnabled: Bool
+    let action: () -> Void
 
     var body: some View {
-        Button {
-            // Capture current frame for vision
-            if let frame = wearablesManager.latestFrameImage {
-                voiceAssistant.capturePhotoForVision(frame)
-            }
-        } label: {
+        Button(action: action) {
             VStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(voiceAssistant.includePhoto ? Color.blue : Color.white.opacity(0.2))
+                        .fill(isActive ? Color.green : Color.white.opacity(0.2))
                         .frame(width: 56, height: 56)
 
-                    Image(systemName: voiceAssistant.includePhoto ? "camera.fill" : "camera")
-                        .font(.system(size: 24))
-                        .foregroundColor(voiceAssistant.includePhoto ? .white : .white.opacity(0.8))
+                    Image(systemName: isActive ? "keyboard.fill" : "keyboard")
+                        .font(.system(size: 22))
+                        .foregroundColor(isActive ? .white : .white.opacity(0.8))
                 }
 
-                Text(voiceAssistant.includePhoto ? "Photo Added" : "Add Photo")
+                Text(isActive ? "Typing" : "Type")
                     .font(.caption)
                     .foregroundColor(.white)
             }
@@ -618,10 +388,63 @@ struct VisionCaptureButton: View {
     }
 }
 
+// MARK: - Auto Vision Indicator
+
+struct AutoVisionIndicator: View {
+    @ObservedObject var voiceAssistant: OpenAIVoiceAssistant
+
+    @State private var isPulsing = false
+
+    private var isActive: Bool {
+        voiceAssistant.state == .recording ||
+        voiceAssistant.state == .processing ||
+        voiceAssistant.state == .speaking
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                // Pulsing ring when active
+                if isActive {
+                    Circle()
+                        .stroke(Color.blue.opacity(0.4), lineWidth: 2)
+                        .frame(width: 60, height: 60)
+                        .scaleEffect(isPulsing ? 1.2 : 1.0)
+                        .opacity(isPulsing ? 0 : 1)
+                        .animation(
+                            .easeInOut(duration: 1.0).repeatForever(autoreverses: false),
+                            value: isPulsing
+                        )
+                }
+
+                Circle()
+                    .fill(isActive ? Color.blue : Color.white.opacity(0.2))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: isActive ? "eye.fill" : "eye")
+                    .font(.system(size: 24))
+                    .foregroundColor(isActive ? .white : .white.opacity(0.8))
+            }
+
+            Text(isActive ? "Auto Vision" : "Vision Off")
+                .font(.caption)
+                .foregroundColor(.white)
+        }
+        .onChange(of: isActive) { _, active in
+            isPulsing = active
+        }
+        .onAppear {
+            if isActive {
+                isPulsing = true
+            }
+        }
+    }
+}
+
 // MARK: - Main Speak Button
 
 struct MainSpeakButton: View {
-    @ObservedObject var voiceAssistant: GeminiVoiceAssistant
+    @ObservedObject var voiceAssistant: OpenAIVoiceAssistant
 
     private var isEnabled: Bool {
         voiceAssistant.state == .idle || voiceAssistant.state == .recording
@@ -640,7 +463,7 @@ struct MainSpeakButton: View {
     private var buttonIcon: String {
         switch voiceAssistant.state {
         case .idle: return "mic"
-        case .recording: return "stop.fill"
+        case .recording: return "mic.fill"
         case .processing: return "ellipsis"
         case .speaking: return "speaker.wave.2.fill"
         case .error: return "exclamationmark.triangle"
@@ -650,7 +473,7 @@ struct MainSpeakButton: View {
     private var buttonText: String {
         switch voiceAssistant.state {
         case .idle: return "Tap to Speak"
-        case .recording: return "Tap to Send"
+        case .recording: return "Listening..."
         case .processing: return "Processing..."
         case .speaking: return "Speaking..."
         case .error: return "Try Again"
@@ -719,7 +542,7 @@ struct MainSpeakButton: View {
     ZStack {
         Color.black
         AIAssistantOverlayView(
-            voiceAssistant: GeminiVoiceAssistant.shared,
+            voiceAssistant: OpenAIVoiceAssistant.shared,
             wearablesManager: WearablesManager.shared
         )
     }
