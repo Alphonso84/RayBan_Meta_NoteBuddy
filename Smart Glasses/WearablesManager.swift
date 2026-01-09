@@ -219,7 +219,7 @@ class WearablesManager: ObservableObject {
             cameraStatus = String(describing: status)
         } catch {
             cameraStatus = "Error: \(error.localizedDescription)"
-            print("Failed to fetch camera status: \(error)")
+            print("Failed to get camera status \(error)")
         }
     }
 
