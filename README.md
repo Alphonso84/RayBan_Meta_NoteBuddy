@@ -1,6 +1,6 @@
 # Smart Glasses - Document Study App
 
-A powerful iOS application for Meta Ray-Ban smart glasses that transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using on-device AI, and organize content into study decks.
+A powerful iOS application for Meta Ray-Ban smart glasses that transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models on-device Apple Intelligence, and organize content into study decks.
 
 ## Features
 
