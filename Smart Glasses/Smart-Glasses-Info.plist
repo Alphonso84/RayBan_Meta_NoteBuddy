@@ -38,6 +38,8 @@
 	<string>Use Siri to start the AI Assistant hands-free</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save photos captured from your smart glasses to your photo library</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Need access to the camera to detect and scan documents and other objects</string>
 	<key>MWDAT</key>
 	<dict>
 		<key>AppLinkURLScheme</key>

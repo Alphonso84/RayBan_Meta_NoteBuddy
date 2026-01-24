@@ -16,8 +16,8 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "186"
             endingLineNumber = "186"
-            landmarkName = "WearablesManager"
-            landmarkType = "3">
+            landmarkName = "setupDetectionSubscriptions()"
+            landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
@@ -32,7 +32,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "254"
             endingLineNumber = "254"
-            landmarkName = "startStream()"
+            landmarkName = "startUnregistration()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

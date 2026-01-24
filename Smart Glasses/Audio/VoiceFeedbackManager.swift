@@ -7,6 +7,8 @@
 
 import Foundation
 import AVFoundation
+import AudioToolbox
+import UIKit
 import Combine
 
 /// Manages text-to-speech voice feedback through the glasses speakers via Bluetooth A2DP
@@ -111,24 +113,6 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
     }
 
     // MARK: - Public Methods
-
-    /// Describe the detection result using TTS
-    /// - Parameter result: The detection result to describe
-    func describe(_ result: DetectionResult?) {
-        guard let result = result else {
-            speak("No detection results available")
-            return
-        }
-
-        let description = result.generateDescription()
-        speak(description)
-    }
-
-    /// Describe a specific object
-    /// - Parameter object: The detected object to describe
-    func describeObject(_ object: DetectedObject) {
-        speak("I see a \(object.label) with \(object.confidencePercent) confidence")
-    }
 
     /// Speak arbitrary text
     /// - Parameter text: The text to speak
@@ -249,5 +233,113 @@ extension VoiceFeedbackManager {
         } else {
             speak("No Bluetooth audio device connected. Sound will play through phone speakers.")
         }
+    }
+}
+
+// MARK: - Capture Feedback
+extension VoiceFeedbackManager {
+
+    /// Feedback for successful document capture
+    func captureSuccess() {
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // System sound (camera shutter-like)
+        AudioServicesPlaySystemSound(1108) // Photo shutter sound
+
+        // Brief spoken confirmation
+        speak("Captured")
+    }
+
+    /// Feedback when document is detected but user needs to hold steady
+    func holdSteady() {
+        // Light haptic
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Subtle tick sound
+        AudioServicesPlaySystemSound(1104) // Tick sound
+    }
+
+    /// Feedback when capture failed due to insufficient text
+    func captureFailedInsufficientText() {
+        // Error haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.error)
+
+        // Error sound
+        AudioServicesPlaySystemSound(1053) // Error/failure sound
+
+        // Spoken feedback
+        speak("Not enough text detected. Try moving closer to the document.")
+    }
+
+    /// Feedback when no document is detected
+    func noDocumentDetected() {
+        // Warning haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+
+        // Spoken feedback
+        speak("No document detected. Point at a document and try again.")
+    }
+
+    /// Feedback when document is first detected
+    func documentDetected() {
+        // Light haptic to indicate detection
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+
+        // Subtle sound
+        AudioServicesPlaySystemSound(1057) // Subtle pop
+    }
+
+    /// Feedback for stability progress (called periodically)
+    func stabilityTick() {
+        // Very light haptic for each stability tick
+        let generator = UIImpactFeedbackGenerator(style: .soft)
+        generator.impactOccurred(intensity: 0.5)
+    }
+}
+
+// MARK: - Multi-Page Scanning Feedback
+extension VoiceFeedbackManager {
+
+    /// Feedback when a page is successfully captured in multi-page mode
+    func pageCaptured(pageNumber: Int) {
+        // Success haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // Camera shutter sound
+        AudioServicesPlaySystemSound(1108)
+
+        // Announce page number
+        speak("Page \(pageNumber) captured")
+    }
+
+    /// Feedback when multi-page scan session is complete
+    func multiPageScanComplete(pageCount: Int) {
+        // Strong success haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // Completion sound
+        AudioServicesPlaySystemSound(1025) // Positive acknowledgment
+
+        // Announce completion
+        let pageWord = pageCount == 1 ? "page" : "pages"
+        speak("\(pageCount) \(pageWord) ready for summary")
+    }
+
+    /// Feedback prompting user to scan next page
+    func readyForNextPage() {
+        // Light haptic
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Brief prompt
+        speak("Ready for next page")
     }
 }

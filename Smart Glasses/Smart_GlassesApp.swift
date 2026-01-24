@@ -6,19 +6,35 @@
 //
 
 import SwiftUI
+import SwiftData
 import AppIntents
 import MWDATCore
 import MWDATCamera
 
 @main
 struct Smart_GlassesApp: App {
+    let modelContainer: ModelContainer
+
     init() {
         configureWearables()
+
+        // Initialize SwiftData container
+        do {
+            let schema = Schema([SummaryCard.self, SummaryDeck.self])
+            let modelConfiguration = ModelConfiguration(
+                schema: schema,
+                isStoredInMemoryOnly: false
+            )
+            modelContainer = try ModelContainer(for: schema, configurations: [modelConfiguration])
+        } catch {
+            fatalError("Failed to create SwiftData container: \(error)")
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
+                .modelContainer(modelContainer)
                 .onOpenURL { url in
                     handleURL(url)
                 }
@@ -49,31 +65,16 @@ struct Smart_GlassesApp: App {
 
         Task { @MainActor in
             switch host {
-            case "start-assistant":
-                // Start AI Assistant mode
+            case "scan":
+                // Start scanning - ensure glasses stream is active
                 let manager = WearablesManager.shared
-                let assistant = OpenAIVoiceAssistant.shared
-
-                manager.currentMode = .aiAssistant
-
                 if manager.streamState == .stopped {
                     manager.startStream()
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
 
-                assistant.startRecording()
-
-            case "stop-assistant":
-                // Stop AI Assistant
-                OpenAIVoiceAssistant.shared.reset()
-
-            case "mode":
-                // Switch mode via URL: smartglasses://mode?name=liveView
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let modeName = components.queryItems?.first(where: { $0.name == "name" })?.value,
-                   let mode = StreamingMode.allCases.first(where: { $0.rawValue.lowercased().replacingOccurrences(of: " ", with: "") == modeName.lowercased() }) {
-                    WearablesManager.shared.currentMode = mode
-                }
+            case "connect":
+                // Initiate glasses connection
+                WearablesManager.shared.startRegistration()
 
             default:
                 print("Unknown deep link host: \(host)")
