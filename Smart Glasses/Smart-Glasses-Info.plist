@@ -12,6 +12,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>metaglasseslab</string>
+				<string>smartglasses</string>
 			</array>
 		</dict>
 	</array>
@@ -25,11 +26,20 @@
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Needed to connect to Meta Wearables</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Used to capture your voice for the AI Assistant</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Use Siri to start the AI Assistant hands-free</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save photos captured from your smart glasses to your photo library</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Need access to the camera to detect and scan documents and other objects</string>
 	<key>MWDAT</key>
 	<dict>
 		<key>AppLinkURLScheme</key>

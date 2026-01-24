@@ -1,0 +1,345 @@
+//
+//  VoiceFeedbackManager.swift
+//  Smart Glasses
+//
+//  Created by Alphonso Sensley II on 12/9/25.
+//
+
+import Foundation
+import AVFoundation
+import AudioToolbox
+import UIKit
+import Combine
+
+/// Manages text-to-speech voice feedback through the glasses speakers via Bluetooth A2DP
+@MainActor
+class VoiceFeedbackManager: NSObject, ObservableObject {
+
+    // MARK: - Singleton
+
+    static let shared = VoiceFeedbackManager()
+
+    // MARK: - Published Properties
+
+    /// Whether the synthesizer is currently speaking
+    @Published var isSpeaking: Bool = false
+
+    /// Whether audio session is properly configured
+    @Published var isAudioConfigured: Bool = false
+
+    /// Current audio output route (for debugging)
+    @Published var audioOutputRoute: String = "Unknown"
+
+    // MARK: - Private Properties
+
+    /// Speech synthesizer
+    private let synthesizer = AVSpeechSynthesizer()
+
+    /// Queue of pending utterances
+    private var utteranceQueue: [String] = []
+
+    // MARK: - Initialization
+
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+        setupAudioSession()
+        observeAudioRouteChanges()
+    }
+
+    // MARK: - Audio Session Setup
+
+    /// Configure AVAudioSession for Bluetooth A2DP output
+    /// Uses ambient category to avoid disrupting glasses Bluetooth streaming
+    func setupAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+
+            // Use ambient category - mixes with other audio and doesn't interrupt
+            // This prevents disrupting the Bluetooth streaming from glasses
+            try session.setCategory(
+                .ambient,
+                mode: .default,
+                options: [.mixWithOthers, .duckOthers]
+            )
+
+            isAudioConfigured = true
+            updateAudioRoute()
+
+            print("[VoiceFeedback] Audio session configured (ambient mode)")
+            print("[VoiceFeedback] Current outputs: \(session.currentRoute.outputs.map { "\($0.portName)" })")
+
+        } catch {
+            print("[VoiceFeedback] Failed to configure audio session: \(error.localizedDescription)")
+            isAudioConfigured = false
+        }
+    }
+
+    /// Reconfigure audio session (call before speaking if needed)
+    func reconfigureForSpeech() {
+        updateAudioRoute()
+        print("[VoiceFeedback] Audio route: \(audioOutputRoute)")
+    }
+
+    /// Observe audio route changes (e.g., Bluetooth connection/disconnection)
+    private func observeAudioRouteChanges() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleRouteChange(_ notification: Notification) {
+        Task { @MainActor in
+            updateAudioRoute()
+        }
+    }
+
+    private func updateAudioRoute() {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs
+
+        if let bluetoothOutput = outputs.first(where: {
+            $0.portType == .bluetoothA2DP || $0.portType == .bluetoothHFP
+        }) {
+            audioOutputRoute = "Bluetooth: \(bluetoothOutput.portName)"
+        } else if let output = outputs.first {
+            audioOutputRoute = output.portName
+        } else {
+            audioOutputRoute = "No output"
+        }
+    }
+
+    // MARK: - Public Methods
+
+    /// Speak arbitrary text
+    /// - Parameter text: The text to speak
+    func speak(_ text: String) {
+        // Don't interrupt if already speaking, queue instead
+        if isSpeaking {
+            utteranceQueue.append(text)
+            return
+        }
+
+        performSpeak(text)
+    }
+
+    /// Stop any current speech
+    func stopSpeaking() {
+        synthesizer.stopSpeaking(at: .immediate)
+        utteranceQueue.removeAll()
+        isSpeaking = false
+    }
+
+    /// Speak with high priority (interrupts current speech)
+    /// - Parameter text: The text to speak immediately
+    func speakImmediately(_ text: String) {
+        stopSpeaking()
+        performSpeak(text)
+    }
+
+    // MARK: - Private Methods
+
+    private func performSpeak(_ text: String) {
+        print("[VoiceFeedback] Speaking: \"\(text)\"")
+
+        // Don't reconfigure audio session - just speak
+        // Reconfiguring can disrupt Bluetooth streaming from glasses
+
+        let utterance = AVSpeechUtterance(string: text)
+
+        // Configure voice - try to get a high quality voice
+        if let voice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.compact.en-US.Samantha") {
+            utterance.voice = voice
+        } else {
+            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        }
+
+        // Configure speech parameters
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 1.0  // Max volume
+
+        // Minimal delays to avoid disruption
+        utterance.preUtteranceDelay = 0.05
+        utterance.postUtteranceDelay = 0.1
+
+        isSpeaking = true
+        synthesizer.speak(utterance)
+
+        print("[VoiceFeedback] Utterance queued to synthesizer")
+    }
+
+    private func processQueue() {
+        guard !utteranceQueue.isEmpty else {
+            isSpeaking = false
+            return
+        }
+
+        let nextText = utteranceQueue.removeFirst()
+        performSpeak(nextText)
+    }
+}
+
+// MARK: - AVSpeechSynthesizerDelegate
+extension VoiceFeedbackManager: AVSpeechSynthesizerDelegate {
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didStart utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in
+            self.isSpeaking = true
+        }
+    }
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in
+            self.processQueue()
+        }
+    }
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in
+            self.isSpeaking = false
+            self.utteranceQueue.removeAll()
+        }
+    }
+}
+
+// MARK: - Convenience Methods
+extension VoiceFeedbackManager {
+
+    /// Check if Bluetooth audio is connected
+    var isBluetoothConnected: Bool {
+        let session = AVAudioSession.sharedInstance()
+        return session.currentRoute.outputs.contains {
+            $0.portType == .bluetoothA2DP || $0.portType == .bluetoothHFP
+        }
+    }
+
+    /// Announce Bluetooth connection status
+    func announceConnectionStatus() {
+        if isBluetoothConnected {
+            speak("Connected to \(audioOutputRoute)")
+        } else {
+            speak("No Bluetooth audio device connected. Sound will play through phone speakers.")
+        }
+    }
+}
+
+// MARK: - Capture Feedback
+extension VoiceFeedbackManager {
+
+    /// Feedback for successful document capture
+    func captureSuccess() {
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // System sound (camera shutter-like)
+        AudioServicesPlaySystemSound(1108) // Photo shutter sound
+
+        // Brief spoken confirmation
+        speak("Captured")
+    }
+
+    /// Feedback when document is detected but user needs to hold steady
+    func holdSteady() {
+        // Light haptic
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Subtle tick sound
+        AudioServicesPlaySystemSound(1104) // Tick sound
+    }
+
+    /// Feedback when capture failed due to insufficient text
+    func captureFailedInsufficientText() {
+        // Error haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.error)
+
+        // Error sound
+        AudioServicesPlaySystemSound(1053) // Error/failure sound
+
+        // Spoken feedback
+        speak("Not enough text detected. Try moving closer to the document.")
+    }
+
+    /// Feedback when no document is detected
+    func noDocumentDetected() {
+        // Warning haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+
+        // Spoken feedback
+        speak("No document detected. Point at a document and try again.")
+    }
+
+    /// Feedback when document is first detected
+    func documentDetected() {
+        // Light haptic to indicate detection
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+
+        // Subtle sound
+        AudioServicesPlaySystemSound(1057) // Subtle pop
+    }
+
+    /// Feedback for stability progress (called periodically)
+    func stabilityTick() {
+        // Very light haptic for each stability tick
+        let generator = UIImpactFeedbackGenerator(style: .soft)
+        generator.impactOccurred(intensity: 0.5)
+    }
+}
+
+// MARK: - Multi-Page Scanning Feedback
+extension VoiceFeedbackManager {
+
+    /// Feedback when a page is successfully captured in multi-page mode
+    func pageCaptured(pageNumber: Int) {
+        // Success haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // Camera shutter sound
+        AudioServicesPlaySystemSound(1108)
+
+        // Announce page number
+        speak("Page \(pageNumber) captured")
+    }
+
+    /// Feedback when multi-page scan session is complete
+    func multiPageScanComplete(pageCount: Int) {
+        // Strong success haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        // Completion sound
+        AudioServicesPlaySystemSound(1025) // Positive acknowledgment
+
+        // Announce completion
+        let pageWord = pageCount == 1 ? "page" : "pages"
+        speak("\(pageCount) \(pageWord) ready for summary")
+    }
+
+    /// Feedback prompting user to scan next page
+    func readyForNextPage() {
+        // Light haptic
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Brief prompt
+        speak("Ready for next page")
+    }
+}
