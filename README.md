@@ -35,7 +35,7 @@ A powerful iOS application for Meta Ray-Ban smart glasses that transforms physic
 
 ## Requirements
 
-- **iOS 17.0+** (iOS 26+ for Foundation Models AI summarization)
+- **iOS 17.0+** But ->(iOS 26+ for Foundation Models AI summarization)
 - **Meta Ray-Ban Smart Glasses** (required for scanning)
 - **Xcode 15+** for building
 - Apple device with Bluetooth support
