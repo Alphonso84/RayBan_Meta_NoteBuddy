@@ -13,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject private var manager = WearablesManager.shared
     @AppStorage("autoSummarize") private var autoSummarize = true
     @AppStorage("speakSummaries") private var speakSummaries = false
+    @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
 
     var body: some View {
         NavigationStack {
@@ -105,6 +106,10 @@ struct SettingsView: View {
 
                 // Scanning Settings
                 Section {
+                    Toggle(isOn: $distanceModeEnabled) {
+                        Label("Distance Mode", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+
                     Toggle(isOn: $autoSummarize) {
                         Label("Auto-Summarize", systemImage: "sparkles")
                     }
@@ -115,7 +120,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Scanning")
                 } footer: {
-                    Text("Auto-summarize uses on-device AI to create summaries of scanned documents.")
+                    Text("Distance Mode enhances image processing for scanning at normal reading distance. Disable for faster processing when holding documents close.")
                 }
 
                 // About Section

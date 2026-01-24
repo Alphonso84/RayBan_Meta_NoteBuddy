@@ -18,6 +18,9 @@ struct LibraryScannerView: View {
     @StateObject private var processor = DocumentReaderProcessor()
     @StateObject private var summarizer = StreamingSummarizer()
 
+    // User settings
+    @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
+
     @State private var showingDeckSelector = false
     @State private var pendingCard: SummaryCard?
     @State private var animationPhase: Double = 0
@@ -158,12 +161,16 @@ struct LibraryScannerView: View {
             }
             .onAppear {
                 startGlassesStream()
+                configureProcessorForDistanceMode()
                 if isAutoCaptureOn {
                     processor.startAutoCapture()
                 }
                 if isMultiPageMode {
                     processor.startMultiPageSession()
                 }
+            }
+            .onChange(of: distanceModeEnabled) { _, _ in
+                configureProcessorForDistanceMode()
             }
             .onDisappear {
                 stopGlassesStream()
@@ -769,6 +776,31 @@ struct LibraryScannerView: View {
         manager.latestFrameImage != nil &&
         (processor.state == .idle || processor.state == .scanning || processor.state == .complete) &&
         !showPageCapturedOptions
+    }
+
+    // MARK: - Configuration
+
+    /// Configure processor settings based on distance mode
+    private func configureProcessorForDistanceMode() {
+        if distanceModeEnabled {
+            // Distance mode: Enhanced processing for reading distance
+            processor.enhanceImageForOCR = true
+            processor.maxProcessingDimension = 3500
+            processor.sharpeningIntensity = 0.5
+            processor.contrastMultiplier = 1.15
+            processor.textConfidenceThreshold = 0.2
+            processor.minimumTextLines = 2
+            processor.minimumCharacters = 30
+        } else {
+            // Close-up mode: Faster processing
+            processor.enhanceImageForOCR = false
+            processor.maxProcessingDimension = 2000
+            processor.sharpeningIntensity = 0.0
+            processor.contrastMultiplier = 1.0
+            processor.textConfidenceThreshold = 0.3
+            processor.minimumTextLines = 3
+            processor.minimumCharacters = 50
+        }
     }
 
     // MARK: - Glasses Stream Control

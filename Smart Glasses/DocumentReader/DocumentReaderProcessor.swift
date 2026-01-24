@@ -75,8 +75,8 @@ class DocumentReaderProcessor: ObservableObject {
     /// Minimum confidence for document detection
     var documentConfidenceThreshold: Float = 0.5
 
-    /// Minimum confidence for text recognition
-    var textConfidenceThreshold: Float = 0.3
+    /// Minimum confidence for text recognition (lowered for distance scanning)
+    var textConfidenceThreshold: Float = 0.2
 
     /// Number of stable frames required before auto-capture
     var stableFramesRequired: Int = 8
@@ -85,10 +85,24 @@ class DocumentReaderProcessor: ObservableObject {
     var stabilityThreshold: Float = 0.03
 
     /// Minimum number of text lines required for successful capture
-    var minimumTextLines: Int = 3
+    var minimumTextLines: Int = 2
 
     /// Minimum characters required for successful capture
-    var minimumCharacters: Int = 50
+    var minimumCharacters: Int = 30
+
+    // MARK: - Image Enhancement Configuration
+
+    /// Maximum dimension for OCR processing (higher = better for distance, but slower)
+    var maxProcessingDimension: CGFloat = 3500
+
+    /// Sharpening intensity (0.0 to 1.0)
+    var sharpeningIntensity: Float = 0.5
+
+    /// Contrast adjustment (1.0 = no change, >1.0 = more contrast)
+    var contrastMultiplier: Float = 1.15
+
+    /// Whether to apply image enhancement before OCR
+    var enhanceImageForOCR: Bool = true
 
     // MARK: - Private Properties
 
@@ -724,31 +738,75 @@ class DocumentReaderProcessor: ObservableObject {
         let outputHeight = max(heightLeft, heightRight)
 
         // Apply perspective correction using CIPerspectiveCorrection
-        guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
+        guard let perspectiveFilter = CIFilter(name: "CIPerspectiveCorrection") else {
             return nil
         }
 
-        filter.setValue(ciImage, forKey: kCIInputImageKey)
-        filter.setValue(CIVector(cgPoint: topLeft), forKey: "inputTopLeft")
-        filter.setValue(CIVector(cgPoint: topRight), forKey: "inputTopRight")
-        filter.setValue(CIVector(cgPoint: bottomRight), forKey: "inputBottomRight")
-        filter.setValue(CIVector(cgPoint: bottomLeft), forKey: "inputBottomLeft")
+        perspectiveFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        perspectiveFilter.setValue(CIVector(cgPoint: topLeft), forKey: "inputTopLeft")
+        perspectiveFilter.setValue(CIVector(cgPoint: topRight), forKey: "inputTopRight")
+        perspectiveFilter.setValue(CIVector(cgPoint: bottomRight), forKey: "inputBottomRight")
+        perspectiveFilter.setValue(CIVector(cgPoint: bottomLeft), forKey: "inputBottomLeft")
 
-        guard let outputImage = filter.outputImage else {
+        guard var processedImage = perspectiveFilter.outputImage else {
             return nil
         }
 
-        // Scale to reasonable size for OCR
-        let maxDimension: CGFloat = 2000
-        let scale = min(maxDimension / outputWidth, maxDimension / outputHeight, 1.0)
-        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        // Scale to higher resolution for better OCR (especially for distance scanning)
+        let scale = min(maxProcessingDimension / outputWidth, maxProcessingDimension / outputHeight, 2.0)
+        if scale > 1.0 {
+            // Upscale for better text recognition
+            processedImage = processedImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+
+        // Apply image enhancements for better OCR
+        if enhanceImageForOCR {
+            processedImage = enhanceImageForTextRecognition(processedImage)
+        }
 
         // Render to CGImage
-        guard let result = ciContext.createCGImage(scaledImage, from: scaledImage.extent) else {
+        guard let result = ciContext.createCGImage(processedImage, from: processedImage.extent) else {
             return nil
         }
 
         return result
+    }
+
+    /// Enhance image for better text recognition (sharpening, contrast, etc.)
+    private func enhanceImageForTextRecognition(_ image: CIImage) -> CIImage {
+        var enhancedImage = image
+
+        // Step 1: Apply sharpening to enhance text edges
+        if let sharpenFilter = CIFilter(name: "CISharpenLuminance") {
+            sharpenFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
+            sharpenFilter.setValue(sharpeningIntensity, forKey: kCIInputSharpnessKey)
+            if let output = sharpenFilter.outputImage {
+                enhancedImage = output
+            }
+        }
+
+        // Step 2: Boost contrast to make text stand out
+        if let contrastFilter = CIFilter(name: "CIColorControls") {
+            contrastFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
+            contrastFilter.setValue(contrastMultiplier, forKey: kCIInputContrastKey)
+            contrastFilter.setValue(1.0, forKey: kCIInputSaturationKey) // Keep saturation normal
+            contrastFilter.setValue(0.0, forKey: kCIInputBrightnessKey) // Keep brightness normal
+            if let output = contrastFilter.outputImage {
+                enhancedImage = output
+            }
+        }
+
+        // Step 3: Apply unsharp mask for additional edge enhancement
+        if let unsharpFilter = CIFilter(name: "CIUnsharpMask") {
+            unsharpFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
+            unsharpFilter.setValue(0.5, forKey: kCIInputRadiusKey)
+            unsharpFilter.setValue(1.0, forKey: kCIInputIntensityKey)
+            if let output = unsharpFilter.outputImage {
+                enhancedImage = output
+            }
+        }
+
+        return enhancedImage
     }
 
     /// Perform OCR on the corrected document image
