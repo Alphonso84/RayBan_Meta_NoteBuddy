@@ -416,6 +416,8 @@ struct CardDetailSheet: View {
     @State private var isEditing = false
     @State private var editedTitle: String = ""
     @State private var showingMoveSheet = false
+    @State private var showingShareSheet = false
+    @State private var pdfData: Data?
 
     var body: some View {
         NavigationStack {
@@ -520,6 +522,12 @@ struct CardDetailSheet: View {
                             Label("Move to Deck", systemImage: "folder")
                         }
 
+                        Button {
+                            exportPDF()
+                        } label: {
+                            Label("Export PDF", systemImage: "doc.text")
+                        }
+
                         Divider()
 
                         Button(role: .destructive) {
@@ -534,6 +542,11 @@ struct CardDetailSheet: View {
             }
             .sheet(isPresented: $showingMoveSheet) {
                 MoveCardSheet(card: card, decks: decks)
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                if let data = pdfData {
+                    ShareSheet(items: [data], fileName: "\(card.title).pdf")
+                }
             }
             .onChange(of: isEditing) { wasEditing, nowEditing in
                 if wasEditing && !nowEditing {
@@ -552,6 +565,11 @@ struct CardDetailSheet: View {
         modelContext.delete(card)
         try? modelContext.save()
         dismiss()
+    }
+
+    private func exportPDF() {
+        pdfData = PDFGenerator.generatePDF(from: card)
+        showingShareSheet = true
     }
 }
 
@@ -629,6 +647,44 @@ struct MoveCardSheet: View {
         try? modelContext.save()
         dismiss()
     }
+}
+
+// MARK: - Share Sheet
+
+/// UIKit wrapper for UIActivityViewController
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    var fileName: String = "Document.pdf"
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        // If the first item is PDF data, wrap it in a temporary file for better sharing
+        var activityItems: [Any] = items
+
+        if let pdfData = items.first as? Data {
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            try? pdfData.write(to: tempURL)
+            activityItems = [tempURL]
+        }
+
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: nil
+        )
+
+        // Exclude some activities that don't make sense for PDFs
+        controller.excludedActivityTypes = [
+            .assignToContact,
+            .addToReadingList,
+            .postToVimeo,
+            .postToWeibo,
+            .postToFlickr,
+            .postToTencentWeibo
+        ]
+
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Preview

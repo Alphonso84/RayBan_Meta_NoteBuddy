@@ -15,7 +15,11 @@ struct DeckDetailView: View {
 
     @State private var selectedCardIndex = 0
     @State private var showingEditSheet = false
+    @State private var showingShareSheet = false
+    @State private var showingDeckSummary = false
+    @State private var pdfData: Data?
 
+    @StateObject private var summarizer = StreamingSummarizer()
     @ObservedObject private var voiceFeedback = VoiceFeedbackManager.shared
     private var sortedCards: [SummaryCard] { deck.sortedCards }
     private var isPlaying: Bool { voiceFeedback.isSpeaking }
@@ -54,11 +58,29 @@ struct DeckDetailView: View {
                         Label("Edit Deck", systemImage: "pencil")
                     }
 
+                    if sortedCards.count >= 2 {
+                        Button {
+                            showingDeckSummary = true
+                        } label: {
+                            if deck.hasDeckSummary {
+                                Label(deck.isSummaryOutdated ? "View Deck Summary (Outdated)" : "View Deck Summary", systemImage: "doc.text.magnifyingglass")
+                            } else {
+                                Label("Generate Deck Summary", systemImage: "sparkles")
+                            }
+                        }
+                    }
+
                     if !sortedCards.isEmpty {
                         Button {
                             speakAllCards()
                         } label: {
                             Label("Read All Cards", systemImage: "speaker.wave.3")
+                        }
+
+                        Button {
+                            exportCurrentCardPDF()
+                        } label: {
+                            Label("Export Card as PDF", systemImage: "doc.text")
                         }
                     }
                 } label: {
@@ -68,6 +90,14 @@ struct DeckDetailView: View {
         }
         .sheet(isPresented: $showingEditSheet) {
             EditDeckSheet(deck: deck)
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let data = pdfData {
+                ShareSheet(items: [data], fileName: "\(currentCard?.title ?? "Card").pdf")
+            }
+        }
+        .sheet(isPresented: $showingDeckSummary) {
+            DeckSummarySheet(deck: deck, summarizer: summarizer)
         }
         .onAppear {
             deck.markAccessed()
@@ -182,11 +212,17 @@ struct DeckDetailView: View {
         .padding(.horizontal, 40)
     }
 
+    // MARK: - Computed Properties
+
+    private var currentCard: SummaryCard? {
+        guard selectedCardIndex < sortedCards.count else { return nil }
+        return sortedCards[selectedCardIndex]
+    }
+
     // MARK: - Actions
 
     private func speakCurrentCard() {
-        guard selectedCardIndex < sortedCards.count else { return }
-        let card = sortedCards[selectedCardIndex]
+        guard let card = currentCard else { return }
         voiceFeedback.speak(card.textForSpeech)
     }
 
@@ -195,6 +231,12 @@ struct DeckDetailView: View {
         for card in sortedCards {
             voiceFeedback.speak(card.textForSpeech)
         }
+    }
+
+    private func exportCurrentCardPDF() {
+        guard let card = currentCard else { return }
+        pdfData = PDFGenerator.generatePDF(from: card)
+        showingShareSheet = true
     }
 }
 
@@ -398,6 +440,329 @@ struct EditDeckSheet: View {
 
         try? modelContext.save()
         dismiss()
+    }
+}
+
+// MARK: - Deck Summary Sheet
+
+struct DeckSummarySheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    @Bindable var deck: SummaryDeck
+    @ObservedObject var summarizer: StreamingSummarizer
+
+    @ObservedObject private var voiceFeedback = VoiceFeedbackManager.shared
+    @State private var showingOutdatedAlert = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header
+                    headerSection
+
+                    if summarizer.state == .summarizing || summarizer.state == .preparing {
+                        // Generating state
+                        generatingView
+                    } else if deck.hasDeckSummary {
+                        // Display existing summary
+                        summaryContentView
+                    } else {
+                        // No summary yet
+                        noSummaryView
+                    }
+                }
+                .padding()
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Deck Summary")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+
+                if deck.hasDeckSummary {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                speakSummary()
+                            } label: {
+                                Label(voiceFeedback.isSpeaking ? "Stop" : "Read Summary", systemImage: voiceFeedback.isSpeaking ? "stop.fill" : "speaker.wave.3")
+                            }
+
+                            Button {
+                                Task {
+                                    await regenerateSummary()
+                                }
+                            } label: {
+                                Label("Regenerate", systemImage: "arrow.clockwise")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .onAppear {
+            // Auto-generate if no summary exists
+            if !deck.hasDeckSummary && deck.cardCount >= 2 {
+                Task {
+                    await generateSummary()
+                }
+            } else if deck.isSummaryOutdated && deck.hasDeckSummary {
+                showingOutdatedAlert = true
+            }
+        }
+        .onDisappear {
+            voiceFeedback.stopSpeaking()
+        }
+        .alert("Summary Outdated", isPresented: $showingOutdatedAlert) {
+            Button("Regenerate") {
+                Task {
+                    await regenerateSummary()
+                }
+            }
+            Button("Keep Current", role: .cancel) {}
+        } message: {
+            Text("\(deck.cardsAddedSinceSummary) card(s) have been added since the last summary was generated. Would you like to regenerate it?")
+        }
+    }
+
+    // MARK: - Header Section
+
+    private var headerSection: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(deck.color)
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: "rectangle.stack.fill")
+                        .foregroundStyle(.white)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(deck.title)
+                    .font(.headline)
+
+                Text("\(deck.cardCount) cards")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if deck.isSummaryOutdated && deck.hasDeckSummary {
+                Label("\(deck.cardsAddedSinceSummary) new", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    // MARK: - Generating View
+
+    private var generatingView: some View {
+        VStack(spacing: 16) {
+            ProgressView(value: summarizer.progress)
+                .progressViewStyle(.linear)
+                .tint(deck.color)
+
+            Text("Generating deck summary...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if !summarizer.streamingSummary.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Summary")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+
+                    Text(summarizer.streamingSummary)
+                        .font(.body)
+                        .lineSpacing(4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+            }
+
+            if !summarizer.streamingKeyPoints.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Key Themes")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(summarizer.streamingKeyPoints, id: \.self) { theme in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(deck.color)
+                                .font(.caption)
+                                .padding(.top, 3)
+
+                            Text(theme)
+                                .font(.subheadline)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+            }
+        }
+    }
+
+    // MARK: - Summary Content View
+
+    private var summaryContentView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Summary section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Summary")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+
+                Text(deck.deckSummary ?? "")
+                    .font(.body)
+                    .lineSpacing(4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+
+            // Key themes section
+            if let keyPoints = deck.deckKeyPoints, !keyPoints.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Key Themes")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(keyPoints, id: \.self) { theme in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(deck.color)
+                                .font(.caption)
+                                .padding(.top, 3)
+
+                            Text(theme)
+                                .font(.subheadline)
+                                .lineSpacing(2)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+            }
+
+            // Metadata
+            if let generatedAt = deck.summaryGeneratedAt {
+                HStack {
+                    Image(systemName: "clock")
+                        .foregroundStyle(.secondary)
+                    Text("Generated \(generatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    // MARK: - No Summary View
+
+    private var noSummaryView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 48))
+                .foregroundStyle(deck.color)
+
+            Text("Generate Deck Summary")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            Text("Create an AI-powered summary that combines insights from all \(deck.cardCount) cards in this deck.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button {
+                Task {
+                    await generateSummary()
+                }
+            } label: {
+                Label("Generate Summary", systemImage: "sparkles")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(deck.color)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.top)
+        }
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Actions
+
+    private func generateSummary() async {
+        guard let result = await summarizer.summarizeDeck(
+            cardSummaries: deck.combinedCardSummaries,
+            cardCount: deck.cardCount,
+            deckTitle: deck.title
+        ) else { return }
+
+        // Save to deck
+        deck.deckSummary = result.summary
+        deck.deckKeyPoints = result.keyThemes
+        deck.summaryGeneratedAt = Date()
+
+        try? modelContext.save()
+    }
+
+    private func regenerateSummary() async {
+        deck.clearDeckSummary()
+        await generateSummary()
+    }
+
+    private func speakSummary() {
+        if voiceFeedback.isSpeaking {
+            voiceFeedback.stopSpeaking()
+        } else if let summary = deck.deckSummary {
+            var textToSpeak = summary
+            if let keyPoints = deck.deckKeyPoints, !keyPoints.isEmpty {
+                textToSpeak += ". Key themes: " + keyPoints.joined(separator: ". ")
+            }
+            voiceFeedback.speak(textToSpeak)
+        }
     }
 }
 

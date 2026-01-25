@@ -27,6 +27,18 @@ struct DocumentSummaryOutput: Codable, Sendable {
     var documentType: String
 }
 
+/// Structured summary output for deck aggregation
+struct DeckSummaryOutput: Codable, Sendable {
+    /// Comprehensive summary of the entire deck
+    var summary: String
+
+    /// Key themes/points across all cards
+    var keyThemes: [String]
+
+    /// Number of cards summarized
+    var cardCount: Int
+}
+
 /// Streaming summarizer using Apple Foundation Models
 @MainActor
 class StreamingSummarizer: ObservableObject {
@@ -268,6 +280,183 @@ class StreamingSummarizer: ObservableObject {
             // Small delay between words for typing effect
             try? await Task.sleep(nanoseconds: 30_000_000) // 30ms per word
         }
+    }
+
+    /// Summarize an entire deck by aggregating card content
+    /// - Parameters:
+    ///   - cardSummaries: Combined summaries from all cards
+    ///   - cardCount: Number of cards in the deck
+    ///   - deckTitle: Title of the deck for context
+    /// - Returns: The DeckSummaryOutput with aggregated summary
+    func summarizeDeck(cardSummaries: String, cardCount: Int, deckTitle: String) async -> DeckSummaryOutput? {
+        // Cancel any existing task
+        currentTask?.cancel()
+
+        // Reset state
+        streamingSummary = ""
+        streamingKeyPoints = []
+        progress = 0
+        errorMessage = nil
+        state = .preparing
+
+        #if canImport(FoundationModels)
+        guard isAvailable, let session = session else {
+            state = .error
+            errorMessage = "Foundation Models not available"
+            return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
+        }
+
+        state = .summarizing
+
+        let prompt = """
+        You are summarizing a study deck titled "\(deckTitle)" containing \(cardCount) cards.
+
+        Here are the summaries from each card:
+
+        ---
+        \(cardSummaries)
+        ---
+
+        Create a comprehensive deck summary that:
+        1. Provides a cohesive overview (3-5 sentences) that synthesizes the main content across all cards
+        2. Identifies 4-6 key themes or important points that span multiple cards
+        3. Highlights connections between different cards when relevant
+
+        Focus on creating a unified summary that helps the reader understand the complete content.
+        Use clear language suitable for text-to-speech.
+        """
+
+        do {
+            var fullResponse = ""
+            let stream = session.streamResponse(to: prompt)
+
+            for try await partialResponse in stream {
+                fullResponse = partialResponse.content
+                progress = min(0.9, progress + 0.03)
+
+                // Parse partial response and update UI
+                let partialOutput = parseDeckResponse(fullResponse, cardCount: cardCount)
+                streamingSummary = partialOutput.summary
+                streamingKeyPoints = partialOutput.keyThemes
+            }
+
+            // Final parse
+            let output = parseDeckResponse(fullResponse, cardCount: cardCount)
+            streamingSummary = output.summary
+            streamingKeyPoints = output.keyThemes
+            progress = 1.0
+            state = .complete
+
+            return output
+
+        } catch {
+            print("[StreamingSummarizer] Deck summary error: \(error)")
+            state = .error
+            errorMessage = error.localizedDescription
+            return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
+        }
+        #else
+        return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    /// Parse deck summary response
+    private func parseDeckResponse(_ content: String, cardCount: Int) -> DeckSummaryOutput {
+        let lines = content.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+
+        var summary = ""
+        var keyThemes: [String] = []
+        var currentSection = ""
+
+        for line in lines {
+            let cleanedLine = stripMarkdownFormatting(line)
+            if cleanedLine.isEmpty { continue }
+
+            let lowercased = cleanedLine.lowercased()
+
+            if lowercased.contains("overview:") || lowercased.contains("summary:") ||
+               (lowercased.contains("overview") && cleanedLine.contains(":")) {
+                currentSection = "summary"
+                let parts = cleanedLine.components(separatedBy: ":")
+                if parts.count > 1 {
+                    summary = stripMarkdownFormatting(parts.dropFirst().joined(separator: ":"))
+                }
+            } else if lowercased.contains("theme") || lowercased.contains("key point") {
+                currentSection = "themes"
+            } else if line.hasPrefix("-") || line.hasPrefix("•") || (line.hasPrefix("*") && !line.hasPrefix("**")) {
+                let theme = stripMarkdownFormatting(String(line.dropFirst()))
+                if !theme.isEmpty && theme != "*" {
+                    keyThemes.append(theme)
+                }
+            } else if currentSection == "summary" && !cleanedLine.isEmpty {
+                if summary.isEmpty {
+                    summary = cleanedLine
+                } else {
+                    summary += " " + cleanedLine
+                }
+            }
+        }
+
+        // Fallback if parsing failed
+        if summary.isEmpty {
+            summary = "This deck contains \(cardCount) cards with study material."
+        }
+
+        return DeckSummaryOutput(
+            summary: stripMarkdownFormatting(summary),
+            keyThemes: keyThemes.map { stripMarkdownFormatting($0) },
+            cardCount: cardCount
+        )
+    }
+    #endif
+
+    /// Create fallback deck summary
+    private func createFallbackDeckSummary(from cardSummaries: String, cardCount: Int) async -> DeckSummaryOutput {
+        state = .summarizing
+
+        // Extract first few sentences as summary
+        let sentences = cardSummaries.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.count > 20 }
+
+        let summary = sentences.prefix(3).joined(separator: ". ") + "."
+
+        // Extract key points from different cards
+        let themes = sentences.prefix(5).map { sentence in
+            if sentence.count > 100 {
+                return String(sentence.prefix(100)) + "..."
+            }
+            return sentence
+        }
+
+        // Stream with typewriter effect
+        await streamText(summary) { partial in
+            self.streamingSummary = partial
+            self.progress = Double(partial.count) / Double(summary.count) * 0.7
+        }
+
+        for (index, theme) in themes.enumerated() {
+            var currentThemes = streamingKeyPoints
+            currentThemes.append("")
+            streamingKeyPoints = currentThemes
+
+            await streamText(theme) { partial in
+                var points = self.streamingKeyPoints
+                points[index] = partial
+                self.streamingKeyPoints = points
+            }
+            progress = 0.7 + (Double(index + 1) / Double(themes.count)) * 0.3
+        }
+
+        progress = 1.0
+        state = .complete
+
+        return DeckSummaryOutput(
+            summary: summary,
+            keyThemes: Array(themes),
+            cardCount: cardCount
+        )
     }
 
     /// Cancel current summarization

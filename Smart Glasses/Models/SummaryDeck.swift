@@ -37,6 +37,17 @@ final class SummaryDeck {
     /// Whether this is the default "Quick Capture" deck
     var isQuickCapture: Bool
 
+    // MARK: - Deck Summary Properties
+
+    /// Aggregated summary of all cards in the deck
+    var deckSummary: String?
+
+    /// Key themes/points across all cards
+    var deckKeyPoints: [String]?
+
+    /// When the deck summary was last generated
+    var summaryGeneratedAt: Date?
+
     init(
         id: UUID = UUID(),
         title: String,
@@ -45,7 +56,10 @@ final class SummaryDeck {
         cards: [SummaryCard] = [],
         createdAt: Date = Date(),
         lastAccessedAt: Date = Date(),
-        isQuickCapture: Bool = false
+        isQuickCapture: Bool = false,
+        deckSummary: String? = nil,
+        deckKeyPoints: [String]? = nil,
+        summaryGeneratedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -55,6 +69,9 @@ final class SummaryDeck {
         self.createdAt = createdAt
         self.lastAccessedAt = lastAccessedAt
         self.isQuickCapture = isQuickCapture
+        self.deckSummary = deckSummary
+        self.deckKeyPoints = deckKeyPoints
+        self.summaryGeneratedAt = summaryGeneratedAt
     }
 }
 
@@ -85,6 +102,59 @@ extension SummaryDeck {
     /// Update last accessed timestamp
     func markAccessed() {
         lastAccessedAt = Date()
+    }
+
+    // MARK: - Deck Summary Helpers
+
+    /// Whether the deck has a generated summary
+    var hasDeckSummary: Bool {
+        deckSummary != nil && !(deckSummary?.isEmpty ?? true)
+    }
+
+    /// Whether the summary is potentially outdated (cards added after summary generation)
+    var isSummaryOutdated: Bool {
+        guard let generatedAt = summaryGeneratedAt else { return true }
+
+        // Check if any card was created after the summary was generated
+        return cards.contains { $0.createdAt > generatedAt }
+    }
+
+    /// Number of cards added since last summary generation
+    var cardsAddedSinceSummary: Int {
+        guard let generatedAt = summaryGeneratedAt else { return cards.count }
+        return cards.filter { $0.createdAt > generatedAt }.count
+    }
+
+    /// Combined source text from all cards (for summarization)
+    var combinedSourceText: String {
+        sortedCards
+            .enumerated()
+            .map { index, card in
+                "--- Card \(index + 1): \(card.title) ---\n\(card.sourceText)"
+            }
+            .joined(separator: "\n\n")
+    }
+
+    /// Combined summaries from all cards (lighter weight for re-summarization)
+    var combinedCardSummaries: String {
+        sortedCards
+            .enumerated()
+            .map { index, card in
+                "Card \(index + 1) - \(card.title):\n\(card.summary)\nKey Points: \(card.keyPoints.joined(separator: "; "))"
+            }
+            .joined(separator: "\n\n")
+    }
+
+    /// Total character count of all source text
+    var totalSourceTextLength: Int {
+        cards.reduce(0) { $0 + $1.sourceText.count }
+    }
+
+    /// Clear the deck summary
+    func clearDeckSummary() {
+        deckSummary = nil
+        deckKeyPoints = nil
+        summaryGeneratedAt = nil
     }
 }
 
