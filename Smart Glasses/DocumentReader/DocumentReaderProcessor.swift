@@ -50,6 +50,10 @@ class DocumentReaderProcessor: ObservableObject {
     /// Auto-capture status message
     @Published var autoCaptureStatus: String = "Point at a document"
 
+    /// Signals that auto-capture detected a stable document and photo capture should be triggered
+    /// LibraryScannerView observes this and calls WearablesManager.captureDocumentPhoto()
+    @Published var shouldTriggerPhotoCapture: Bool = false
+
     // MARK: - Multi-Page Scanning Properties
 
     /// Whether multi-page scanning mode is active
@@ -92,17 +96,18 @@ class DocumentReaderProcessor: ObservableObject {
 
     // MARK: - Image Enhancement Configuration
 
-    /// Maximum dimension for OCR processing (higher = better for distance, but slower)
-    var maxProcessingDimension: CGFloat = 3500
+    /// Target dimension for the longer side of processed image
+    /// Vision framework works best with images around 2000-3000px
+    var targetProcessingDimension: CGFloat = 2500
 
-    /// Sharpening intensity (0.0 to 1.0)
-    var sharpeningIntensity: Float = 0.5
+    /// Whether to apply image preprocessing before OCR
+    var preprocessImage: Bool = true
 
-    /// Contrast adjustment (1.0 = no change, >1.0 = more contrast)
-    var contrastMultiplier: Float = 1.15
+    /// Whether to convert to grayscale (can improve OCR accuracy)
+    var convertToGrayscale: Bool = true
 
-    /// Whether to apply image enhancement before OCR
-    var enhanceImageForOCR: Bool = true
+    /// Whether to apply adaptive thresholding for better text contrast
+    var useAdaptiveThreshold: Bool = false
 
     // MARK: - Private Properties
 
@@ -395,6 +400,7 @@ class DocumentReaderProcessor: ObservableObject {
         isDocumentStable = false
         detectedBoundary = nil
         autoCaptureStatus = "Auto-capture disabled"
+        shouldTriggerPhotoCapture = false
         hasPlayedDetectionSound = false
         lastStabilityLevel = 0
     }
@@ -521,24 +527,29 @@ class DocumentReaderProcessor: ObservableObject {
         return movements.max() ?? 0
     }
 
-    /// Trigger the full capture and OCR process
+    /// Trigger photo capture when document is stable
+    /// Instead of processing video frame, signals LibraryScannerView to capture high-res photo
     private func triggerAutoCapture(_ image: UIImage) {
         // Temporarily disable auto-capture during processing
-        let wasEnabled = isAutoCaptureEnabled
         isAutoCaptureEnabled = false
+        autoCaptureStatus = "Capturing photo..."
 
-        // Process the image
-        captureAndProcess(image)
+        // Signal that photo capture should be triggered
+        // LibraryScannerView observes this and calls WearablesManager.captureDocumentPhoto()
+        shouldTriggerPhotoCapture = true
+    }
+
+    /// Called after photo capture is complete to re-enable auto-capture if needed
+    func autoCaptureDidComplete() {
+        shouldTriggerPhotoCapture = false
 
         // Re-enable after a delay to allow user to see results
-        if wasEnabled {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                // Only re-enable if state indicates we should continue
-                if self?.state == .complete {
-                    // Stay complete - user needs to save or discard
-                } else {
-                    self?.resetAutoCapture()
-                }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            // Only re-enable if state indicates we should continue
+            if self?.state == .complete {
+                // Stay complete - user needs to save or discard
+            } else {
+                self?.resetAutoCapture()
             }
         }
     }
@@ -552,6 +563,7 @@ class DocumentReaderProcessor: ObservableObject {
         detectedBoundary = nil
         autoCaptureStatus = "Point at a document"
         isAutoCaptureEnabled = true
+        shouldTriggerPhotoCapture = false
         state = .scanning
         hasPlayedDetectionSound = false
         lastStabilityLevel = 0
@@ -752,16 +764,27 @@ class DocumentReaderProcessor: ObservableObject {
             return nil
         }
 
-        // Scale to higher resolution for better OCR (especially for distance scanning)
-        let scale = min(maxProcessingDimension / outputWidth, maxProcessingDimension / outputHeight, 2.0)
-        if scale > 1.0 {
-            // Upscale for better text recognition
-            processedImage = processedImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        // Scale to target dimension for optimal OCR
+        // Vision works best with images around 2000-3000px on the longer side
+        let maxDimension = max(outputWidth, outputHeight)
+        if maxDimension > 0 {
+            let scale = targetProcessingDimension / maxDimension
+            if scale != 1.0 {
+                // Use Lanczos for high-quality scaling
+                if let lanczosFilter = CIFilter(name: "CILanczosScaleTransform") {
+                    lanczosFilter.setValue(processedImage, forKey: kCIInputImageKey)
+                    lanczosFilter.setValue(scale, forKey: kCIInputScaleKey)
+                    lanczosFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+                    if let output = lanczosFilter.outputImage {
+                        processedImage = output
+                    }
+                }
+            }
         }
 
-        // Apply image enhancements for better OCR
-        if enhanceImageForOCR {
-            processedImage = enhanceImageForTextRecognition(processedImage)
+        // Apply preprocessing if enabled
+        if preprocessImage {
+            processedImage = preprocessForOCR(processedImage)
         }
 
         // Render to CGImage
@@ -769,44 +792,50 @@ class DocumentReaderProcessor: ObservableObject {
             return nil
         }
 
+        print("[DocumentReader] Processed image size: \(result.width)x\(result.height)")
         return result
     }
 
-    /// Enhance image for better text recognition (sharpening, contrast, etc.)
-    private func enhanceImageForTextRecognition(_ image: CIImage) -> CIImage {
-        var enhancedImage = image
+    /// Preprocess image for optimal OCR accuracy
+    private func preprocessForOCR(_ image: CIImage) -> CIImage {
+        var processedImage = image
 
-        // Step 1: Apply sharpening to enhance text edges
-        if let sharpenFilter = CIFilter(name: "CISharpenLuminance") {
-            sharpenFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
-            sharpenFilter.setValue(sharpeningIntensity, forKey: kCIInputSharpnessKey)
-            if let output = sharpenFilter.outputImage {
-                enhancedImage = output
+        // Step 1: Convert to grayscale if enabled (reduces noise, focuses on text)
+        if convertToGrayscale {
+            if let grayscaleFilter = CIFilter(name: "CIPhotoEffectMono") {
+                grayscaleFilter.setValue(processedImage, forKey: kCIInputImageKey)
+                if let output = grayscaleFilter.outputImage {
+                    processedImage = output
+                }
             }
         }
 
-        // Step 2: Boost contrast to make text stand out
+        // Step 2: Increase contrast slightly to make text stand out
         if let contrastFilter = CIFilter(name: "CIColorControls") {
-            contrastFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
-            contrastFilter.setValue(contrastMultiplier, forKey: kCIInputContrastKey)
-            contrastFilter.setValue(1.0, forKey: kCIInputSaturationKey) // Keep saturation normal
-            contrastFilter.setValue(0.0, forKey: kCIInputBrightnessKey) // Keep brightness normal
+            contrastFilter.setValue(processedImage, forKey: kCIInputImageKey)
+            contrastFilter.setValue(1.1, forKey: kCIInputContrastKey) // Slight contrast boost
+            contrastFilter.setValue(1.0, forKey: kCIInputSaturationKey)
+            contrastFilter.setValue(0.0, forKey: kCIInputBrightnessKey)
             if let output = contrastFilter.outputImage {
-                enhancedImage = output
+                processedImage = output
             }
         }
 
-        // Step 3: Apply unsharp mask for additional edge enhancement
-        if let unsharpFilter = CIFilter(name: "CIUnsharpMask") {
-            unsharpFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
-            unsharpFilter.setValue(0.5, forKey: kCIInputRadiusKey)
-            unsharpFilter.setValue(1.0, forKey: kCIInputIntensityKey)
-            if let output = unsharpFilter.outputImage {
-                enhancedImage = output
+        // Step 3: Apply adaptive threshold if enabled (binarization for cleaner text)
+        // This can help with uneven lighting but may lose detail
+        if useAdaptiveThreshold {
+            // Use a subtle unsharp mask instead of hard thresholding
+            if let unsharpFilter = CIFilter(name: "CIUnsharpMask") {
+                unsharpFilter.setValue(processedImage, forKey: kCIInputImageKey)
+                unsharpFilter.setValue(1.0, forKey: kCIInputRadiusKey)
+                unsharpFilter.setValue(0.5, forKey: kCIInputIntensityKey)
+                if let output = unsharpFilter.outputImage {
+                    processedImage = output
+                }
             }
         }
 
-        return enhancedImage
+        return processedImage
     }
 
     /// Perform OCR on the corrected document image
@@ -826,14 +855,17 @@ class DocumentReaderProcessor: ObservableObject {
             }
 
             guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                print("[DocumentReader] No OCR results")
                 completion([], "")
                 return
             }
 
+            print("[DocumentReader] OCR found \(observations.count) text observations")
+
             var textBlocks: [RecognizedTextBlock] = []
-            var allText: [String] = []
 
             for observation in observations {
+                // Get top candidate with confidence check
                 guard let candidate = observation.topCandidates(1).first,
                       candidate.confidence >= self.textConfidenceThreshold else {
                     continue
@@ -845,30 +877,34 @@ class DocumentReaderProcessor: ObservableObject {
                     confidence: candidate.confidence
                 )
                 textBlocks.append(block)
-                allText.append(candidate.string)
             }
 
             // Sort text blocks by position (top to bottom, left to right)
+            // Vision coordinates: origin at bottom-left, y increases upward
             textBlocks.sort { block1, block2 in
                 let y1 = block1.boundingBox.origin.y + block1.boundingBox.height
                 let y2 = block2.boundingBox.origin.y + block2.boundingBox.height
 
+                // If on roughly the same line (within 2% of image height)
                 if abs(y1 - y2) < 0.02 {
                     return block1.boundingBox.origin.x < block2.boundingBox.origin.x
                 }
+                // Otherwise sort by y (higher y = earlier in document since origin is bottom-left)
                 return y1 > y2
             }
 
             // Combine text in reading order
             let fullText = textBlocks.map { $0.text }.joined(separator: "\n")
 
+            print("[DocumentReader] Recognized \(textBlocks.count) text blocks, \(fullText.count) characters")
             completion(textBlocks, fullText)
         }
 
-        // Configure for accurate recognition
+        // Configure for maximum accuracy
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.recognitionLanguages = ["en-US"]
+        // Don't set minimumTextHeight - let Vision decide what it can read
 
         do {
             try handler.perform([request])

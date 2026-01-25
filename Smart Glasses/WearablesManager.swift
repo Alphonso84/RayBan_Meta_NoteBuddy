@@ -26,6 +26,14 @@ class WearablesManager: ObservableObject {
     @Published var latestFrameImage: UIImage? = nil
     @Published var deviceStatus: String = "No device"
 
+    // MARK: - Photo Capture Properties
+
+    /// Whether a photo capture is in progress
+    @Published var isCapturingPhoto: Bool = false
+
+    /// The latest captured high-resolution photo
+    @Published var capturedPhoto: UIImage? = nil
+
     // MARK: - Document Reader
 
     @Published var latestDocumentResult: DocumentReadingResult?
@@ -39,8 +47,12 @@ class WearablesManager: ObservableObject {
     private var frameToken: AnyListenerToken?
     private var stateToken: AnyListenerToken?
     private var errorToken: AnyListenerToken?
+    private var photoToken: AnyListenerToken?
     private let deviceSelector: AutoDeviceSelector
     private var streamSession: StreamSession?
+
+    /// Completion handler for photo capture
+    private var photoCaptureCompletion: ((UIImage?) -> Void)?
 
     // Combine subscriptions
     private var documentResultCancellable: AnyCancellable?
@@ -173,6 +185,27 @@ class WearablesManager: ObservableObject {
             }
         }
 
+        // Listen for photo captures (high resolution still images)
+        photoToken = session.photoDataPublisher.listen { [weak self] photoData in
+            guard let self = self else { return }
+            Task { @MainActor in
+                let image = UIImage(data: photoData.data)
+                self.capturedPhoto = image
+                self.isCapturingPhoto = false
+
+                if let image = image {
+                    print("[WearablesManager] Photo captured: \(image.size.width)x\(image.size.height)")
+                    // Call completion handler if set
+                    self.photoCaptureCompletion?(image)
+                    self.photoCaptureCompletion = nil
+                } else {
+                    print("[WearablesManager] Failed to create image from photo data")
+                    self.photoCaptureCompletion?(nil)
+                    self.photoCaptureCompletion = nil
+                }
+            }
+        }
+
         Task {
             await session.start()
         }
@@ -186,26 +219,83 @@ class WearablesManager: ObservableObject {
         let frame = frameToken
         let state = stateToken
         let error = errorToken
+        let photo = photoToken
 
         Task {
             await frame?.cancel()
             await state?.cancel()
             await error?.cancel()
+            await photo?.cancel()
             await session?.stop()
         }
 
         frameToken = nil
         stateToken = nil
         errorToken = nil
+        photoToken = nil
         streamSession = nil
         streamState = .stopped
         latestFrameImage = nil
+        capturedPhoto = nil
+        isCapturingPhoto = false
+        photoCaptureCompletion = nil
         documentReaderProcessor.reset()
+    }
+
+    // MARK: - Photo Capture
+
+    /// Capture a high-resolution still photo from the glasses
+    /// - Parameter completion: Called with the captured image, or nil if capture failed
+    func capturePhoto(completion: @escaping (UIImage?) -> Void) {
+        guard let session = streamSession else {
+            print("[WearablesManager] No active stream session for photo capture")
+            completion(nil)
+            return
+        }
+
+        guard !isCapturingPhoto else {
+            print("[WearablesManager] Photo capture already in progress")
+            return
+        }
+
+        isCapturingPhoto = true
+        photoCaptureCompletion = completion
+
+        print("[WearablesManager] Requesting photo capture...")
+        session.capturePhoto(format: .jpeg)
+    }
+
+    /// Capture a high-resolution photo and return it asynchronously
+    func capturePhotoAsync() async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            capturePhoto { image in
+                continuation.resume(returning: image)
+            }
+        }
     }
 
     // MARK: - Document Scanning
 
-    /// Capture and process the current frame for document scanning
+    /// Capture a high-resolution photo and process it for document scanning
+    /// This uses the photo capture API for much better OCR accuracy
+    func captureDocumentPhoto() {
+        guard streamSession != nil else {
+            print("[WearablesManager] No active stream session")
+            return
+        }
+
+        capturePhoto { [weak self] image in
+            guard let self = self, let image = image else {
+                print("[WearablesManager] Photo capture failed")
+                self?.documentReaderProcessor.errorMessage = "Photo capture failed"
+                return
+            }
+            print("[WearablesManager] Processing high-res photo for OCR: \(image.size.width)x\(image.size.height)")
+            self.documentReaderProcessor.captureAndProcess(image)
+        }
+    }
+
+    /// Capture and process the current video frame for document scanning (legacy - lower resolution)
     func captureDocument() {
         guard let frameImage = latestFrameImage else {
             print("[WearablesManager] No frame available for capture")

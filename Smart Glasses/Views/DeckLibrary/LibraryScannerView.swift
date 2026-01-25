@@ -194,10 +194,40 @@ struct LibraryScannerView: View {
                 }
             }
             .onChange(of: manager.latestFrameImage) { _, newImage in
-                // Feed frames to auto-capture processor
+                // Feed frames to auto-capture processor for boundary detection
+                // (uses low-res video for detection, but captures high-res photo when stable)
                 if let image = newImage, isAutoCaptureOn, summarizer.state == .idle {
                     processor.processFrameForAutoCapture(image)
                 }
+            }
+            .onChange(of: processor.shouldTriggerPhotoCapture) { _, shouldCapture in
+                // When auto-capture detects stable document, trigger high-res photo capture
+                if shouldCapture {
+                    triggerHighResPhotoCapture()
+                }
+            }
+        }
+    }
+
+    /// Trigger high-resolution photo capture for OCR
+    private func triggerHighResPhotoCapture() {
+        print("[LibraryScannerView] Triggering high-res photo capture for OCR")
+
+        manager.capturePhoto { [weak processor] image in
+            guard let processor = processor else { return }
+
+            // Reset the trigger flag
+            processor.shouldTriggerPhotoCapture = false
+
+            if let image = image {
+                print("[LibraryScannerView] Got high-res photo: \(image.size.width)x\(image.size.height)")
+                // Process the high-resolution photo
+                processor.captureAndProcess(image)
+                processor.autoCaptureDidComplete()
+            } else {
+                print("[LibraryScannerView] Photo capture failed")
+                processor.errorMessage = "Photo capture failed"
+                processor.autoCaptureDidComplete()
             }
         }
     }
@@ -783,21 +813,22 @@ struct LibraryScannerView: View {
     /// Configure processor settings based on distance mode
     private func configureProcessorForDistanceMode() {
         if distanceModeEnabled {
-            // Distance mode: Enhanced processing for reading distance
-            processor.enhanceImageForOCR = true
-            processor.maxProcessingDimension = 3500
-            processor.sharpeningIntensity = 0.5
-            processor.contrastMultiplier = 1.15
-            processor.textConfidenceThreshold = 0.2
+            // Distance mode: Optimized for reading distance scanning
+            // Scale to ~2500px for best Vision framework accuracy
+            processor.targetProcessingDimension = 2500
+            processor.preprocessImage = true
+            processor.convertToGrayscale = true         // Improves OCR accuracy
+            processor.useAdaptiveThreshold = false      // Keep detail
+            processor.textConfidenceThreshold = 0.3     // Standard confidence
             processor.minimumTextLines = 2
-            processor.minimumCharacters = 30
+            processor.minimumCharacters = 20
         } else {
             // Close-up mode: Faster processing
-            processor.enhanceImageForOCR = false
-            processor.maxProcessingDimension = 2000
-            processor.sharpeningIntensity = 0.0
-            processor.contrastMultiplier = 1.0
-            processor.textConfidenceThreshold = 0.3
+            processor.targetProcessingDimension = 2000
+            processor.preprocessImage = false
+            processor.convertToGrayscale = false
+            processor.useAdaptiveThreshold = false
+            processor.textConfidenceThreshold = 0.4
             processor.minimumTextLines = 3
             processor.minimumCharacters = 50
         }
@@ -818,9 +849,11 @@ struct LibraryScannerView: View {
 
     // MARK: - Actions
 
+    /// Capture a high-resolution photo and process for OCR
+    /// Uses the photo capture API for 12MP images instead of 720p video frames
     private func captureDocument() {
-        guard let image = manager.latestFrameImage else { return }
-        processor.captureAndProcess(image)
+        // Use high-resolution photo capture instead of video frame
+        manager.captureDocumentPhoto()
     }
 
     private func startSummarization(for result: DocumentReadingResult) {

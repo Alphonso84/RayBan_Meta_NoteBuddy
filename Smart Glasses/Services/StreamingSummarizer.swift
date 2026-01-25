@@ -181,8 +181,15 @@ class StreamingSummarizer: ObservableObject {
                 let partialOutput = parseResponse(fullResponse, originalText: text)
                 streamingSummary = partialOutput.summary
                 streamingKeyPoints = partialOutput.keyPoints
-                suggestedTitle = partialOutput.suggestedTitle
-                documentType = partialOutput.documentType
+                // Only update title if we have a valid non-empty title
+                if !partialOutput.suggestedTitle.isEmpty {
+                    suggestedTitle = partialOutput.suggestedTitle
+                }
+                if !partialOutput.documentType.isEmpty && partialOutput.documentType != "Document" {
+                    documentType = partialOutput.documentType
+                } else if documentType.isEmpty {
+                    documentType = partialOutput.documentType
+                }
             }
 
             // Final parse
@@ -296,37 +303,50 @@ class StreamingSummarizer: ObservableObject {
         var currentSection = ""
 
         for line in lines {
-            let lowercased = line.lowercased()
+            // Skip empty lines or lines that are just markdown formatting
+            let cleanedLine = stripMarkdownFormatting(line)
+            if cleanedLine.isEmpty {
+                continue
+            }
 
-            if lowercased.contains("summary:") || lowercased.contains("summary") && line.contains(":") {
+            let lowercased = cleanedLine.lowercased()
+
+            if lowercased.contains("summary:") || (lowercased.contains("summary") && cleanedLine.contains(":")) {
                 currentSection = "summary"
-                let parts = line.components(separatedBy: ":")
+                let parts = cleanedLine.components(separatedBy: ":")
                 if parts.count > 1 {
-                    summary = parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
+                    summary = stripMarkdownFormatting(parts.dropFirst().joined(separator: ":"))
                 }
             } else if lowercased.contains("key point") || lowercased.contains("bullet") {
                 currentSection = "keypoints"
             } else if lowercased.contains("title:") || lowercased.contains("suggested title") {
                 currentSection = "title"
-                let parts = line.components(separatedBy: ":")
+                let parts = cleanedLine.components(separatedBy: ":")
                 if parts.count > 1 {
-                    title = parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
+                    let rawTitle = parts.dropFirst().joined(separator: ":")
+                    title = stripMarkdownFormatting(rawTitle)
                 }
             } else if lowercased.contains("type:") || lowercased.contains("document type") {
                 currentSection = "type"
-                let parts = line.components(separatedBy: ":")
+                let parts = cleanedLine.components(separatedBy: ":")
                 if parts.count > 1 {
-                    docType = parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
+                    docType = stripMarkdownFormatting(parts.dropFirst().joined(separator: ":"))
                 }
-            } else if line.hasPrefix("-") || line.hasPrefix("•") || line.hasPrefix("*") {
-                let point = line.dropFirst().trimmingCharacters(in: .whitespaces)
-                if !point.isEmpty {
-                    keyPoints.append(String(point))
+            } else if line.hasPrefix("-") || line.hasPrefix("•") || (line.hasPrefix("*") && !line.hasPrefix("**")) {
+                // Bullet point - but not markdown bold
+                let point = stripMarkdownFormatting(String(line.dropFirst()))
+                if !point.isEmpty && point != "*" {
+                    keyPoints.append(point)
                 }
-            } else if currentSection == "summary" && !line.isEmpty && summary.isEmpty {
-                summary = line
-            } else if currentSection == "summary" && !line.isEmpty {
-                summary += " " + line
+            } else if line.hasPrefix("**") && line.hasSuffix("**") {
+                // This is just a markdown header/bold text, skip it
+                continue
+            } else if currentSection == "summary" && !cleanedLine.isEmpty && summary.isEmpty {
+                summary = cleanedLine
+            } else if currentSection == "summary" && !cleanedLine.isEmpty {
+                summary += " " + cleanedLine
+            } else if currentSection == "title" && title.isEmpty && !cleanedLine.isEmpty {
+                title = cleanedLine
             }
         }
 
@@ -341,12 +361,43 @@ class StreamingSummarizer: ObservableObject {
             keyPoints = extractKeyPoints(from: originalText)
         }
 
+        // Clean up any remaining markdown in final output
+        summary = stripMarkdownFormatting(summary)
+        title = stripMarkdownFormatting(title)
+        docType = stripMarkdownFormatting(docType)
+        keyPoints = keyPoints.map { stripMarkdownFormatting($0) }
+
         return DocumentSummaryOutput(
             summary: summary,
             keyPoints: keyPoints,
             suggestedTitle: title,
             documentType: docType
         )
+    }
+
+    /// Strip markdown formatting characters from text
+    private func stripMarkdownFormatting(_ text: String) -> String {
+        var result = text.trimmingCharacters(in: .whitespaces)
+
+        // Remove bold/italic markers
+        result = result.replacingOccurrences(of: "**", with: "")
+        result = result.replacingOccurrences(of: "__", with: "")
+        result = result.replacingOccurrences(of: "~~", with: "")
+
+        // Remove single asterisks/underscores at start and end (italic)
+        if result.hasPrefix("*") && result.hasSuffix("*") && result.count > 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+        if result.hasPrefix("_") && result.hasSuffix("_") && result.count > 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+
+        // Remove markdown headers
+        while result.hasPrefix("#") {
+            result = String(result.dropFirst())
+        }
+
+        return result.trimmingCharacters(in: .whitespaces)
     }
     #endif
 
