@@ -1,6 +1,6 @@
 # Ray-Ban Meta - NoteBuddy
 
-A powerful iOS application for Ray-Ban Meta smart glasses that transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models on-device Apple Intelligence, and organize content into study decks. Because the app utilizes Apple's Foundation Models On Device LLM; this app does not require a internet connection.
+A powerful iOS application that pairs with Ray-Ban Meta smart glasses and transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models on-device Apple Intelligence, and organize content into study decks. Because the app utilizes Apple's Foundation Models On Device LLM; this app does not require a internet connection.
 
 ## Features
 
