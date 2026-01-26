@@ -160,7 +160,7 @@ struct LibraryScannerView: View {
                 }
             }
             .onAppear {
-                startGlassesStream()
+                // Stream lifecycle is managed by MainTabView - don't start here
                 configureProcessorForDistanceMode()
                 if isAutoCaptureOn {
                     processor.startAutoCapture()
