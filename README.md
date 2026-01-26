@@ -35,10 +35,10 @@ A powerful iOS application for Meta Ray-Ban smart glasses that transforms physic
 
 ## Requirements
 
-- **iOS 17.0+** But ->(iOS 26+ for Foundation Models AI summarization)
+- **-> iOS 26+ for Foundation Models AI summarization)
 - **Meta Ray-Ban Smart Glasses** (required for scanning)
+- **Download Meta AI App (required to allow NoteBuddy to access the glasses)
 - **Xcode 15+** for building
-- Apple device with Bluetooth support
 
 ### Dependencies
 | Dependency | Purpose |
@@ -60,10 +60,10 @@ git clone https://github.com/your-username/smart-glasses.git
 cd smart-glasses
 ```
 
-### 2. Install Meta Wearables SDK
-The project requires the Meta Wearables SDK. Follow Meta's developer documentation to obtain the SDK packages:
-- `MWDATCore.xcframework`
-- `MWDATCamera.xcframework`
+### 2. Put Meta AI App into Developer Mode
+-On your iOS or Android device, select Settings > App Info, and then tap the App version number five times to display the toggle for developer mode.
+-Select the toggle to enable Developer Mode.
+-Click Enable to confirm.
 
 ### 3. Open in Xcode
 ```bash
