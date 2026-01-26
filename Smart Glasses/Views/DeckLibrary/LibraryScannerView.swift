@@ -843,8 +843,9 @@ struct LibraryScannerView: View {
     }
 
     private func stopGlassesStream() {
-        // Don't stop stream when leaving - it may be used by other views
-        // Stream management is handled by WearablesManager based on app state
+        // Stream lifecycle is managed by MainTabView based on tab selection
+        // Stream stops when leaving Scan tab, starts when entering Scan tab
+        // This saves battery when the glasses camera is not needed
     }
 
     // MARK: - Actions
