@@ -35,15 +35,25 @@ A powerful iOS application for Ray-Ban Meta smart glasses that transforms physic
 
 ## Requirements
 
-- **-> iOS 26+ for Foundation Models AI summarization)
-- **Meta Ray-Ban Smart Glasses** (required for scanning)
-- **Download Meta AI App (required to allow NoteBuddy to access the glasses)
-- **Xcode 15+** for building
+### Hardware
+- **iPhone** running **iOS 26+** (required for Apple Foundation Models AI summarization)
+- **Meta Ray-Ban Smart Glasses** (required for document scanning)
 
-### Dependencies
+### Software
+- **Xcode 16+** for building
+- **Meta AI App** installed on your iPhone (required to allow NoteBuddy to access the glasses)
+- **Apple Developer Account** (free or paid) for code signing and deploying to your device
+
+### Dependencies (Automatically Installed)
+The following dependencies are managed via Swift Package Manager and will be **automatically downloaded** when you open the project in Xcode:
+
 | Dependency | Purpose |
 |------------|---------|
-| `MWDATCore` / `MWDATCamera` | Meta Wearables SDK |
+| `MWDATCore` / `MWDATCamera` | [Meta Wearables SDK](https://github.com/facebook/meta-wearables-dat-ios) (public) |
+
+Built-in Apple frameworks used:
+| Framework | Purpose |
+|-----------|---------|
 | `SwiftUI` / `SwiftData` | UI and persistence |
 | `Vision` | Document detection and OCR |
 | `CoreImage` | Image processing |
@@ -54,31 +64,67 @@ A powerful iOS application for Ray-Ban Meta smart glasses that transforms physic
 
 ## Getting Started
 
-### 1. Clone the Repository
+### Prerequisites Checklist
+
+Before you begin, make sure you have:
+
+- [ ] iPhone with iOS 26+ installed
+- [ ] Meta Ray-Ban Smart Glasses paired with your iPhone
+- [ ] Meta AI App installed from the App Store
+- [ ] Xcode 16+ installed on your Mac
+- [ ] Apple Developer Account (free accounts work for personal devices)
+
+### Step 1: Clone the Repository
+
 ```bash
-git clone https://github.com/your-username/smart-glasses.git
-cd smart-glasses
+git clone https://github.com/Alphonso84/RayBan_Meta_Lab.git
+cd RayBan_Meta_Lab
 ```
 
-### 2. Put Meta AI App into Developer Mode
--On your iOS or Android device, select Settings > App Info, and then tap the App version number five times to display the toggle for developer mode.
--Select the toggle to enable Developer Mode.
--Click Enable to confirm.
+### Step 2: Open in Xcode
 
-### 3. Open in Xcode
 ```bash
 open "Smart Glasses.xcodeproj"
 ```
 
-### 4. Configure Signing
-- Select the project in Xcode
-- Navigate to Signing & Capabilities
-- Select your development team
+When Xcode opens, it will **automatically download** the Meta Wearables SDK via Swift Package Manager. Wait for the package resolution to complete (you'll see progress in the status bar).
 
-### 5. Build and Run
-- Connect your iOS device
-- Select your device as the build target
-- Press `Cmd + R` to build and run
+### Step 3: Configure Code Signing
+
+1. Select the **Smart Glasses** project in the navigator (blue icon)
+2. Select the **Smart Glasses** target
+3. Go to the **Signing & Capabilities** tab
+4. Check **Automatically manage signing**
+5. Select your **Team** from the dropdown (sign in with your Apple ID if needed)
+6. If needed, change the **Bundle Identifier** to something unique (e.g., `com.yourname.notebuddy`)
+
+### Step 4: Enable Developer Mode on Meta AI App
+
+On your iPhone:
+1. Open the **Meta AI** app
+2. Go to **Settings** > **App Info**
+3. Tap the **App version number 5 times** to reveal the Developer Mode toggle
+4. Enable **Developer Mode**
+5. Tap **Enable** to confirm
+
+### Step 5: Build and Run
+
+1. Connect your iPhone to your Mac via USB
+2. Select your iPhone from the device dropdown in Xcode's toolbar
+3. Press **Cmd + R** (or click the Play button) to build and run
+4. On first launch, trust the developer certificate on your iPhone:
+   - Go to **Settings** > **General** > **VPN & Device Management**
+   - Tap your developer certificate and tap **Trust**
+
+### Step 6: Connect Your Glasses
+
+1. Launch the app on your iPhone
+2. Navigate to the **Settings** tab
+3. Tap **Connect Glasses**
+4. Follow the on-screen prompts to complete registration
+5. Grant camera permissions when prompted
+
+You're ready to scan!
 
 ---
 

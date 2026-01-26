@@ -1,208 +1,359 @@
-# Smart Glasses - Claude Context File
+# Ray-Ban Meta - NoteBuddy
 
 ## Project Type
-iOS Swift app for Meta Ray-Ban smart glasses using Meta Wearables SDK (MWDATCore, MWDATCamera)
+iOS SwiftUI app for Meta Ray-Ban smart glasses enabling OCR document scanning, AI-powered summarization, and study deck organization using Meta Wearables SDK (MWDATCore, MWDATCamera) and Apple Foundation Models.
 
 ## Core Architecture
 
 ```
-App Entry: Smart_GlassesApp.swift → ContentView.swift → FullScreenStreamView.swift
-                                                              ↓
-                                          ┌─────────────────────────────────────┐
-                                          │  WearablesManager (singleton)       │
-                                          │  - Manages device connection        │
-                                          │  - Handles video frames             │
-                                          │  - Routes to processors by mode     │
-                                          └─────────────────────────────────────┘
-                                                              ↓
-                    ┌─────────────────────┬─────────────────────┬─────────────────────┐
-                    ↓                     ↓                     ↓                     ↓
-              Live View             Object Tracking        Text Reader          AI Assistant
-              (passthrough)         (saliency-based)       (not impl)          (OpenAI Realtime)
+App Entry: Smart_GlassesApp.swift → MainTabView.swift
+                                          ↓
+                    ┌─────────────────────┬─────────────────────┐
+                    ↓                     ↓                     ↓
+               Library Tab           Scan Tab              Settings Tab
+          (DeckLibraryView)    (LibraryScannerView)      (SettingsView)
+                    ↓                     ↓
+                    │         ┌───────────────────────┐
+                    │         │   WearablesManager    │
+                    │         │  - Device connection  │
+                    │         │  - Video streaming    │
+                    │         │  - Photo capture      │
+                    │         └───────────────────────┘
+                    │                     ↓
+                    │         ┌───────────────────────┐
+                    │         │ DocumentReaderProcessor│
+                    │         │  - Boundary detection │
+                    │         │  - OCR processing     │
+                    │         │  - Auto-capture       │
+                    │         └───────────────────────┘
+                    │                     ↓
+                    │         ┌───────────────────────┐
+                    │         │  StreamingSummarizer  │
+                    │         │  - AI summarization   │
+                    │         │  - Key points extract │
+                    │         └───────────────────────┘
+                    │                     ↓
+                    └────────→ SwiftData (SummaryCard, SummaryDeck)
 ```
 
 ## Key Managers & Singletons
 
 | Class | File | Purpose |
 |-------|------|---------|
-| `WearablesManager.shared` | WearablesManager.swift | Central hub: device connection, stream control, mode switching, frame routing |
-| `OpenAIVoiceAssistant.shared` | OpenAIRealtime/OpenAIVoiceAssistant.swift | AI Assistant: push-to-talk, WebSocket streaming, real-time audio |
-| `OpenAIRealtimeClient` | OpenAIRealtime/OpenAIRealtimeClient.swift | WebSocket client for OpenAI Realtime API |
-| `OpenAIAPIKeyManager.shared` | OpenAIRealtime/OpenAIAPIKeyManager.swift | Keychain storage for OpenAI API key |
-| `ObjectDetectionProcessor` | ObjectDetection/ObjectDetectionProcessor.swift | Vision framework saliency detection |
-| `VoiceFeedbackManager.shared` | Audio/VoiceFeedbackManager.swift | iOS TTS for detection announcements |
+| `WearablesManager.shared` | WearablesManager.swift | Central hub: device connection, stream control, photo capture |
+| `VoiceFeedbackManager.shared` | Audio/VoiceFeedbackManager.swift | TTS, haptics, audio cues for feedback |
+| `StreamingSummarizer` | Services/StreamingSummarizer.swift | Apple Foundation Models AI summarization |
+| `PDFGenerator` | Services/PDFGenerator.swift | Export cards/decks as PDF |
 
-## Streaming Modes (WearablesManager.currentMode)
-
-```swift
-enum StreamingMode {
-    case liveView        // Raw video only
-    case objectDetection // Saliency tracking with bounding boxes
-    case textReader      // OCR (not implemented)
-    case aiAssistant     // OpenAI Realtime voice assistant
-}
-```
-
-## AI Assistant Flow (OpenAI Realtime API)
+## Document Scanning Flow
 
 ```
-User taps mic → startRecording() → connects WebSocket if needed
-                        ↓
-        OpenAIRealtimeClient.connect()
-        wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview
-                        ↓
-        session.created → session.update (configure voice, modalities)
-                        ↓
-        AVAudioEngine captures 24kHz PCM → stream via input_audio_buffer.append
-                        ↓
-User taps again → stopRecordingAndSend()
-                        ↓
-        [Optional: conversation.item.create with image if photo captured]
-                        ↓
-        input_audio_buffer.commit → response.create
-                        ↓
-        response.audio.delta (streaming audio chunks) → AVAudioEngine playback
-                        ↓
-        response.done → return to idle
+User enters Scan tab
+        ↓
+MainTabView.handleStreamForTab() → WearablesManager.startStream()
+        ↓
+Video frames arrive → WearablesManager.latestFrameImage
+        ↓
+LibraryScannerView displays live preview
+        ↓
+DocumentReaderProcessor.processFrameForAutoCapture() (every 3rd frame)
+        ↓
+VNDetectDocumentSegmentationRequest → boundary detection
+        ↓
+If document stable → triggerHighResPhotoCapture()
+        ↓
+WearablesManager.capturePhoto() → high-res image
+        ↓
+DocumentReaderProcessor.captureAndProcess()
+  ├── Perspective correction (CIPerspectiveCorrection)
+  ├── Image preprocessing (grayscale, contrast)
+  └── OCR (VNRecognizeTextRequest)
+        ↓
+DocumentReadingResult with extracted text
+        ↓
+StreamingSummarizer.summarize() → summary, key points, title
+        ↓
+Save SummaryCard to SwiftData
+        ↓
+User views card in Library
 ```
 
-## Object Tracking Flow
+## Multi-Page Scanning Flow
 
 ```
-VideoFrame → ObjectDetectionProcessor.processFrame()
-                    ↓
-    VNGenerateAttentionBasedSaliencyImageRequest
-                    ↓
-    extractSalientRegions() → TrackedObject[]
-                    ↓
-    DetectionResult(trackedObjects:) → DetectionOverlayView
-                    ↓
-    TrackingBoxView (colored bounding boxes, no labels)
+First page captured → showPageCapturedOptions = true
+        ↓
+User taps "Add Page"
+        ↓
+processor.addPageToSession()
+  ├── Increment page count
+  ├── Accumulate text
+  └── Store thumbnail
+        ↓
+Reset for next page capture
+        ↓
+Repeat for additional pages...
+        ↓
+User taps "Done"
+        ↓
+finishMultiPageSession()
+        ↓
+Summarize combined text from all pages
+        ↓
+Save single card with all page content
 ```
 
 ## Key Data Models
 
 ```swift
-// Object Tracking
-struct TrackedObject { boundingBox: CGRect, saliency: Float, trackingLabel: String, colorIndex: Int }
-struct DetectionResult { objects: [DetectedObject], trackedObjects: [TrackedObject], isTrackingMode: Bool }
+// SwiftData Models
+@Model SummaryCard {
+    id: UUID
+    title: String
+    summary: String
+    keyPoints: [String]
+    sourceText: String
+    pageNumber: Int?
+    thumbnailData: Data?
+    createdAt: Date
+    deck: SummaryDeck?
+}
 
-// Voice Assistant States
-enum VoiceAssistantState { idle, recording, processing, speaking, error(String) }
+@Model SummaryDeck {
+    id: UUID
+    title: String
+    deckDescription: String?
+    colorHex: String           // 6-digit hex color
+    cards: [SummaryCard]       // Cascade delete
+    createdAt: Date
+    lastAccessedAt: Date
+    isQuickCapture: Bool       // Special "Quick Capture" deck
+    deckSummary: String?       // Aggregated deck summary
+    deckKeyPoints: [String]?   // Key themes across all cards
+}
 
-// OpenAI Voices
-enum OpenAIVoice { alloy, ash, ballad, coral, echo, sage, shimmer, verse }
+// Document Processing
+struct DocumentReadingResult {
+    extractedText: String
+    documentBoundary: VNRectangleObservation?
+    textBlocks: [TextBlock]
+    confidence: Float
+    processedImage: CGImage?
+}
+
+struct TextBlock {
+    text: String
+    boundingBox: CGRect
+    confidence: Float
+}
+
+// Summarizer Output
+struct DocumentSummaryOutput {
+    summary: String           // 1-3 sentences
+    keyPoints: [String]       // 3-5 bullet points
+    suggestedTitle: String    // Auto-generated title
+    documentType: String      // article, letter, receipt, etc.
+}
+
+// Processor States
+enum DocumentReaderState {
+    case idle, detecting, processing, captured, error(String)
+}
+
+enum SummarizerState {
+    case idle, preparing, summarizing, complete, error(String)
+}
 ```
 
 ## File Structure
 
 ```
 Smart Glasses/
-├── Smart_GlassesApp.swift          # App entry, URL handling
-├── ContentView.swift               # Main settings/controls
-├── FullScreenStreamView.swift      # Video display + overlays
-├── WearablesManager.swift          # Central manager, StreamingMode enum
-├── WearablesConfig.swift           # SDK initialization
+├── Smart_GlassesApp.swift          # App entry, SwiftData container
+├── WearablesManager.swift          # Central manager singleton
+├── WearablesConfig.swift           # Meta SDK initialization
+├── AppIntents.swift                # Siri Shortcuts support
 │
-├── ObjectDetection/
-│   ├── ObjectDetectionProcessor.swift  # VNGenerateAttentionBasedSaliencyImageRequest
-│   ├── DetectionResult.swift           # TrackedObject, DetectedObject, DetectionResult
-│   └── DetectionConfiguration.swift    # FocusArea (legacy), config options
+├── Models/
+│   ├── SummaryCard.swift           # SwiftData card model
+│   └── SummaryDeck.swift           # SwiftData deck model
 │
-├── OpenAIRealtime/
-│   ├── OpenAIVoiceAssistant.swift      # Main assistant: WebSocket, record, stream, playback
-│   ├── OpenAIRealtimeClient.swift      # WebSocket client for Realtime API
-│   ├── OpenAIAPIKeyManager.swift       # Keychain storage for API key
-│   └── OpenAIMessageModels.swift       # Codable event types for API
+├── DocumentReader/
+│   ├── DocumentReaderProcessor.swift  # OCR pipeline, auto-capture
+│   └── DocumentReadingResult.swift    # Result structs
 │
-├── Views/
-│   ├── AIAssistantOverlayView.swift    # Speak button, camera button, status
-│   ├── DetectionOverlayView.swift      # TrackingBoxView, TrackingBadge
-│   └── ...
+├── Services/
+│   ├── StreamingSummarizer.swift   # Apple Foundation Models
+│   └── PDFGenerator.swift          # PDF export
 │
-└── Audio/
-    └── VoiceFeedbackManager.swift      # AVSpeechSynthesizer for detection
+├── Audio/
+│   └── VoiceFeedbackManager.swift  # TTS, haptics, sounds
+│
+└── Views/
+    ├── MainTabView.swift              # Tab navigation (Library/Scan/Settings)
+    ├── SettingsView.swift             # Connection, preferences
+    ├── DocumentBoundaryOverlay.swift  # Real-time boundary visualization
+    │
+    ├── DeckLibrary/
+    │   ├── DeckLibraryView.swift      # Main library grid
+    │   ├── DeckDetailView.swift       # Card carousel, playback
+    │   └── LibraryScannerView.swift   # Scanning interface
+    │
+    └── DocumentScanner/
+        └── CardPreviewSheet.swift     # Save card dialog
 ```
 
-## OpenAI Realtime API
+## UI Components
 
+### MainTabView (Tab Navigation)
 ```
-# WebSocket Connection
-wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17
-Headers: Authorization: Bearer <API_KEY>, OpenAI-Beta: realtime=v1
-
-# Key Client Events
-- session.update: Configure voice, modalities, turn_detection
-- input_audio_buffer.append: Stream audio chunks (base64 PCM)
-- input_audio_buffer.commit: Signal end of user speech
-- conversation.item.create: Add text/image to conversation
-- response.create: Trigger AI response
-
-# Key Server Events
-- session.created/updated: Session configuration confirmed
-- response.audio.delta: Streaming audio response (base64 PCM)
-- response.audio_transcript.delta: Real-time transcription
-- response.done: Response complete
-- error: Error information
+┌─────────────────────────────────────────────┐
+│  [Library]    [Scan]    [Settings]          │  ← Tab bar
+└─────────────────────────────────────────────┘
 ```
 
-## Audio Formats
+### LibraryScannerView (Scan Tab)
+```
+┌─────────────────────────────────────────────┐
+│  [Auto-Capture Toggle]                      │  ← Top bar
+├─────────────────────────────────────────────┤
+│                                             │
+│         Live Video Feed                     │
+│         + DocumentBoundaryOverlay           │
+│         (boundary polygon, stability ring)  │
+│                                             │
+├─────────────────────────────────────────────┤
+│  Status: "Hold steady..." / "Captured!"    │
+│  [Streaming summary text appears here]      │
+├─────────────────────────────────────────────┤
+│  Multi-page: [Page 1] [Page 2] thumbnails  │
+├─────────────────────────────────────────────┤
+│  [Add Page]  [Done]  [Skip]                │  ← After capture
+└─────────────────────────────────────────────┘
+```
 
-| Context | Format |
-|---------|--------|
-| Recording (mic input) | PCM 24kHz 16-bit mono |
-| OpenAI audio output | PCM 24kHz 16-bit mono |
-| Playback | AVAudioEngine with AVAudioPlayerNode |
+### DeckLibraryView (Library Tab)
+```
+┌─────────────────────────────────────────────┐
+│  X Decks • Y Cards • Z Unsorted            │  ← Stats
+├─────────────────────────────────────────────┤
+│  Quick Capture                              │
+│  [Card] [Card] [Card] →                    │  ← Horizontal scroll
+├─────────────────────────────────────────────┤
+│  Decks                            [+ New]   │
+│  ┌──────┐  ┌──────┐                        │
+│  │ Deck │  │ Deck │                        │  ← 2-column grid
+│  │ ■■■■ │  │ ■■■■ │                        │
+│  └──────┘  └──────┘                        │
+└─────────────────────────────────────────────┘
+```
 
-## UI Components (AIAssistantOverlayView.swift)
+### DeckDetailView (Card Carousel)
+```
+┌─────────────────────────────────────────────┐
+│  [Back]   Deck Title            [Options]   │
+├─────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────┐    │
+│  │         Card Thumbnail              │    │
+│  │                                     │    │
+│  └─────────────────────────────────────┘    │
+│  Card Title                    1 / 5        │
+│  Jan 26, 2026 • 150 words                  │
+├─────────────────────────────────────────────┤
+│  Summary text here...                       │
+│                                             │
+│  Key Points:                                │
+│  • Point 1                                  │
+│  • Point 2                                  │
+├─────────────────────────────────────────────┤
+│        [◀]    [▶ Play]    [▶]              │  ← Playback controls
+└─────────────────────────────────────────────┘
+```
+
+## DocumentReaderProcessor Configuration
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `documentConfidenceThreshold` | 0.5 | Minimum detection confidence |
+| `textConfidenceThreshold` | 0.2 | OCR confidence (lowered for distance) |
+| `stableFramesRequired` | 8 | Frames document must stay steady |
+| `stabilityThreshold` | 0.03 | Maximum boundary movement allowed |
+| `targetProcessingDimension` | 2500 | Optimal image size for Vision |
+| `minimumTextLines` | 2 | Minimum lines to accept |
+| `minimumCharacters` | 30 | Minimum chars to accept |
+
+## Distance Mode
+Toggle in Settings that adjusts OCR parameters:
+
+| Setting | Close-up | Distance |
+|---------|----------|----------|
+| Processing dimension | 2000px | 2500px |
+| Grayscale preprocessing | No | Yes |
+| Contrast boost | No | Yes (1.1x) |
+| Text confidence threshold | Higher | 0.2 |
+
+## Stability Tracking
+Auto-capture uses visual stability detection:
 
 ```
-┌─────────────────────────────────────────┐
-│ [AssistantStatusBadge]  [PhotoQueuedBadge] │  ← Top
-│                                         │
-│         [LastResponseView]              │  ← Shows last AI response
-│                                         │
-│    [VisionCaptureButton] [MainSpeakButton] │  ← Bottom controls
-└─────────────────────────────────────────┘
-
-MainSpeakButton states:
-- idle (green): "Tap to Speak"
-- recording (red): "Tap to Send"
-- processing (yellow): spinner
-- speaking (purple): "Speaking..."
+Document detected → Monitor boundary corners
+        ↓
+Calculate movement between frames
+        ↓
+If movement < stabilityThreshold:
+  stableFrameCount++
+  Progress: stableFrameCount / stableFramesRequired
+        ↓
+Haptic feedback at 25%, 50%, 75%
+        ↓
+At 100% → Capture high-res photo
 ```
+
+Visual states:
+- White: No document
+- Cyan: Document detected
+- Yellow: Partially stable (>50%)
+- Green: Ready to capture
 
 ## Key Patterns
 
-1. **Singletons**: WearablesManager.shared, OpenAIVoiceAssistant.shared, OpenAIAPIKeyManager.shared
-2. **@MainActor**: All managers are MainActor for UI updates
-3. **Combine**: @Published properties, sink subscriptions for state changes
-4. **async/await**: Audio processing, state management
-5. **WebSocket**: Real-time bidirectional audio streaming
-6. **Vision framework**: VNImageRequestHandler, VNGenerateAttentionBasedSaliencyImageRequest
+1. **Singletons**: WearablesManager.shared, VoiceFeedbackManager.shared
+2. **@MainActor**: All UI managers ensure main thread safety
+3. **@Published + Combine**: Reactive state updates
+4. **SwiftData @Query**: Reactive database queries with sorting
+5. **async/await**: All async operations
+6. **Task-based concurrency**: Background processing with proper cancellation
+7. **Frame throttling**: Process every 3rd frame to reduce CPU load
 
 ## Dependencies
 
-- MWDATCore, MWDATCamera (Meta Wearables SDK)
-- AVFoundation (audio record/playback)
-- Vision (object tracking)
-- Security (Keychain for API key)
+| Framework | Purpose |
+|-----------|---------|
+| MWDATCore, MWDATCamera | Meta Wearables SDK |
+| SwiftUI | UI framework |
+| SwiftData | Persistence |
+| Vision | Document detection, OCR |
+| CoreImage | Image processing, perspective correction |
+| AVFoundation | Audio feedback, TTS |
+| AppIntents | Siri Shortcuts |
+| Foundation Models | AI summarization (iOS 26+) |
 
-## Architecture Decisions
+## Siri Shortcuts (AppIntents)
 
-1. **OpenAI Realtime API** → WebSocket for real-time bidirectional audio
-2. **No continuous video streaming** → Photo capture on-demand
-3. **Push-to-talk audio** → turn_detection: "none" (not continuous listening)
-4. **Saliency-based tracking** → Not classification (no labels, just bounding boxes)
-5. **Streaming audio playback** → Play audio chunks as they arrive
-6. **Fallback TTS** → iOS AVSpeechSynthesizer if OpenAI fails
+`ScanDocumentIntent`:
+- Opens app, waits for stream
+- Captures and processes document
+- Returns extracted text
+- Phrases: "Scan document with Smart Glasses"
 
 ## Common Tasks
 
 | Task | Location |
 |------|----------|
-| Add new streaming mode | WearablesManager.StreamingMode enum |
-| Modify AI prompt | OpenAIVoiceAssistant.systemPrompt |
-| Change TTS voice | OpenAIVoiceAssistant.selectedVoice |
-| Adjust tracking sensitivity | ObjectDetectionProcessor.saliencyThreshold (default 0.3) |
-| Handle new WebSocket events | OpenAIRealtimeClient.parseTextMessage() |
+| Adjust OCR sensitivity | DocumentReaderProcessor configuration parameters |
+| Modify summarization prompts | StreamingSummarizer.summarize() |
+| Change TTS behavior | VoiceFeedbackManager |
+| Add new deck colors | SummaryDeck.presetColors |
+| Modify auto-capture timing | DocumentReaderProcessor.stableFramesRequired |
+| Change PDF layout | PDFGenerator |
+| Add new tab | MainTabView |
