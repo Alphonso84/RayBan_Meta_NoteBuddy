@@ -18,15 +18,15 @@ struct LibraryScannerView: View {
     @StateObject private var processor = DocumentReaderProcessor()
     @StateObject private var summarizer = StreamingSummarizer()
 
-    // User settings
+    // User settings (persisted)
     @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
+    @AppStorage("multiPageModeEnabled") private var isMultiPageMode = false  // Single-page (auto-summarize) by default
 
     @State private var showingDeckSelector = false
     @State private var pendingCard: SummaryCard?
     @State private var animationPhase: Double = 0
     @State private var isAutoCaptureOn = true  // Auto-capture enabled by default
     @State private var frameSize: CGSize = .zero
-    @State private var isMultiPageMode = true  // Multi-page enabled by default
     @State private var showPageCapturedOptions = false  // Show options after page capture
 
     var body: some View {
@@ -48,7 +48,7 @@ struct LibraryScannerView: View {
 
                 // Overlay content
                 VStack(spacing: 0) {
-                    // Top bar with title and auto-capture toggle
+                    // Top bar with title and mode toggles
                     HStack {
                         // Auto-capture toggle
                         Button {
@@ -59,15 +59,41 @@ struct LibraryScannerView: View {
                                 processor.stopAutoCapture()
                             }
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 4) {
                                 Image(systemName: isAutoCaptureOn ? "a.circle.fill" : "a.circle")
-                                    .font(.system(size: 20))
+                                    .font(.system(size: 18))
                                 Text("Auto")
-                                    .font(.caption)
+                                    .font(.caption2)
                                     .fontWeight(.medium)
                             }
                             .foregroundStyle(isAutoCaptureOn ? .green : .white.opacity(0.7))
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                        }
+
+                        // Multi-page toggle
+                        Button {
+                            isMultiPageMode.toggle()
+                            if isMultiPageMode {
+                                processor.startMultiPageSession()
+                            } else {
+                                // If switching off multi-page, finish any current session
+                                if processor.capturedPageCount > 0 {
+                                    _ = processor.finishMultiPageSession()
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: isMultiPageMode ? "doc.on.doc.fill" : "doc.fill")
+                                    .font(.system(size: 16))
+                                Text(isMultiPageMode ? "Multi" : "Single")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(isMultiPageMode ? .blue : .white.opacity(0.7))
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(.ultraThinMaterial)
                             .clipShape(Capsule())
@@ -75,15 +101,8 @@ struct LibraryScannerView: View {
 
                         Spacer()
 
-                        Text("Scan Document")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 2)
-
-                        Spacer()
-
-                        // Page counter badge (when pages captured)
-                        if processor.capturedPageCount > 0 {
+                        // Page counter badge (when pages captured in multi-page mode)
+                        if isMultiPageMode && processor.capturedPageCount > 0 {
                             HStack(spacing: 4) {
                                 Image(systemName: "doc.on.doc.fill")
                                     .font(.system(size: 14))
@@ -96,10 +115,6 @@ struct LibraryScannerView: View {
                             .padding(.vertical, 6)
                             .background(Color.blue)
                             .clipShape(Capsule())
-                        } else {
-                            // Placeholder for balance
-                            Color.clear
-                                .frame(width: 70, height: 32)
                         }
                     }
                     .padding()
@@ -171,6 +186,13 @@ struct LibraryScannerView: View {
             }
             .onChange(of: distanceModeEnabled) { _, _ in
                 configureProcessorForDistanceMode()
+            }
+            .onChange(of: isMultiPageMode) { _, newValue in
+                // When toggling multi-page mode, update processor state
+                if newValue {
+                    processor.startMultiPageSession()
+                }
+                // Note: Turning off is handled in the button action to properly finish session
             }
             .onDisappear {
                 stopGlassesStream()

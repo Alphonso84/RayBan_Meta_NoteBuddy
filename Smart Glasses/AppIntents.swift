@@ -12,10 +12,10 @@ import SwiftUI
 
 // MARK: - Scan Document Intent
 
-/// Intent to scan a document with smart glasses
+/// Intent to scan a document with smart glasses, extract text, and summarize it
 struct ScanDocumentIntent: AppIntent {
     static var title: LocalizedStringResource = "Scan Document"
-    static var description = IntentDescription("Scans a document using your smart glasses and extracts text.")
+    static var description = IntentDescription("Scans a document using your smart glasses, extracts text, and generates an AI summary.")
 
     static var openAppWhenRun: Bool = true
 
@@ -27,8 +27,13 @@ struct ScanDocumentIntent: AppIntent {
         // Reset any previous state
         processor.reset()
 
-        // Start streaming if not already streaming
-        let wasAlreadyStreaming = manager.streamState == .streaming
+        // Navigate to Scan tab - this triggers MainTabView's stream management
+        NavigationState.shared.selectedTab = .scan
+
+        // Give the tab switch a moment to process
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        // Start streaming if not already streaming (MainTabView should handle this, but ensure it)
         if manager.streamState == .stopped {
             manager.startStream()
         }
@@ -52,9 +57,6 @@ struct ScanDocumentIntent: AppIntent {
         }
 
         guard let frame = manager.latestFrameImage else {
-            if !wasAlreadyStreaming {
-                manager.stopStream()
-            }
             throw ScanError.noFrame
         }
 
@@ -68,12 +70,7 @@ struct ScanDocumentIntent: AppIntent {
             attempts += 1
         }
 
-        // Stop streaming if we started it
-        if !wasAlreadyStreaming {
-            manager.stopStream()
-        }
-
-        // Check results
+        // Check OCR results
         guard let result = processor.latestResult, result.hasText else {
             if processor.latestResult?.hasDocument == true {
                 return .result(value: "", dialog: "Document detected but no text found.")
@@ -82,10 +79,31 @@ struct ScanDocumentIntent: AppIntent {
             }
         }
 
-        let text = result.extractedText
-        let preview = text.count > 200 ? String(text.prefix(200)) + "..." : text
+        let extractedText = result.extractedText
 
-        return .result(value: text, dialog: "Document scanned: \(preview)")
+        // Summarize the document using AI
+        let summarizer = StreamingSummarizer()
+        await summarizer.checkAvailability()
+
+        guard let summaryOutput = await summarizer.summarize(extractedText) else {
+            // Fallback to raw text if summarization fails
+            let preview = extractedText.count > 200 ? String(extractedText.prefix(200)) + "..." : extractedText
+            return .result(value: extractedText, dialog: "Scanned: \(preview)")
+        }
+
+        // Build the output string with summary and key points
+        var outputText = summaryOutput.summary
+        if !summaryOutput.keyPoints.isEmpty {
+            outputText += "\n\nKey Points:\n"
+            for point in summaryOutput.keyPoints {
+                outputText += "• \(point)\n"
+            }
+        }
+
+        // Create a spoken dialog with the title and summary
+        let dialogText = "\(summaryOutput.suggestedTitle): \(summaryOutput.summary)"
+
+        return .result(value: outputText, dialog: "\(dialogText)")
     }
 }
 
@@ -94,6 +112,7 @@ enum ScanError: Error, CustomLocalizedStringResourceConvertible {
     case connectionFailed
     case noFrame
     case processingFailed
+    case summarizationFailed
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
@@ -103,6 +122,8 @@ enum ScanError: Error, CustomLocalizedStringResourceConvertible {
             return "Could not get an image. Please try again."
         case .processingFailed:
             return "Failed to process the document."
+        case .summarizationFailed:
+            return "Failed to summarize the document."
         }
     }
 }
@@ -115,11 +136,16 @@ struct SmartGlassesShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: ScanDocumentIntent(),
             phrases: [
+                "Scan this with \(.applicationName)",
                 "Scan document with \(.applicationName)",
+                "Scan with \(.applicationName)",
+                "\(.applicationName) scan this",
                 "\(.applicationName) scan document",
+                "Read this with \(.applicationName)",
                 "Read document with \(.applicationName)",
-                "\(.applicationName) read document",
-                "Scan page with \(.applicationName)"
+                "Capture document with \(.applicationName)",
+                "Summarize this with \(.applicationName)",
+                "Summarize document with \(.applicationName)"
             ],
             shortTitle: "Scan Document",
             systemImageName: "doc.viewfinder"

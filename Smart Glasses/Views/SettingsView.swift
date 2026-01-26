@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("autoSummarize") private var autoSummarize = true
     @AppStorage("speakSummaries") private var speakSummaries = false
     @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
+    @AppStorage("multiPageModeEnabled") private var multiPageModeEnabled = false
 
     var body: some View {
         NavigationStack {
@@ -110,6 +111,10 @@ struct SettingsView: View {
                         Label("Distance Mode", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
 
+                    Toggle(isOn: $multiPageModeEnabled) {
+                        Label("Multi-Page Mode", systemImage: "doc.on.doc")
+                    }
+
                     Toggle(isOn: $autoSummarize) {
                         Label("Auto-Summarize", systemImage: "sparkles")
                     }
@@ -120,7 +125,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Scanning")
                 } footer: {
-                    Text("Distance Mode enhances image processing for scanning at normal reading distance. Disable for faster processing when holding documents close.")
+                    Text("Single-page mode auto-summarizes immediately after capture. Multi-page mode lets you scan multiple pages before generating one combined summary.")
                 }
 
                 // About Section

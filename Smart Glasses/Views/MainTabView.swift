@@ -5,6 +5,7 @@
 //  Main tab navigation for the document study app
 //
 
+import Combine
 import MWDATCamera
 import SwiftUI
 
@@ -15,13 +16,28 @@ enum AppTab: Int {
     case settings = 2
 }
 
+/// Shared navigation state for programmatic tab changes (e.g., from Siri intents)
+@MainActor
+final class NavigationState: ObservableObject {
+    static let shared = NavigationState()
+    @Published var selectedTab: AppTab = .library
+    private init() {}
+}
+
 /// Main tab-based navigation
 struct MainTabView: View {
-    @State private var selectedTab: AppTab = .library
+    @StateObject private var navigationState = NavigationState.shared
     @ObservedObject private var manager = WearablesManager.shared
 
+    private var selectedTab: Binding<AppTab> {
+        Binding(
+            get: { navigationState.selectedTab },
+            set: { navigationState.selectedTab = $0 }
+        )
+    }
+
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: selectedTab) {
             // Library Tab - Decks and Cards (Landing Page)
             DeckLibraryView()
                 .tabItem {
@@ -43,9 +59,9 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.settings)
         }
-        .task(id: selectedTab) {
+        .task(id: navigationState.selectedTab) {
             // This task runs when selectedTab changes and cancels when it changes again
-            await handleStreamForTab(selectedTab)
+            await handleStreamForTab(navigationState.selectedTab)
         }
     }
 
