@@ -1,6 +1,6 @@
-# Smart Glasses - Document Study App
+# Ray-Ban Meta - NoteBuddy
 
-A powerful iOS application for Meta Ray-Ban smart glasses that transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models on-device Apple Intelligence, and organize content into study decks.
+A powerful iOS application for Ray-Ban Meta smart glasses that transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models on-device Apple Intelligence, and organize content into study decks. Because the app utilizes Apple's Foundation Models On Device LLM; this app does not require a internet connection.
 
 ## Features
 
@@ -126,7 +126,7 @@ open "Smart Glasses.xcodeproj"
 
 ## Settings
 
-### Meta Ray-Ban Glasses
+### Ray-Ban Meta Glasses
 | Setting | Description |
 |---------|-------------|
 | Status | Connection status indicator (green/yellow/red) |
