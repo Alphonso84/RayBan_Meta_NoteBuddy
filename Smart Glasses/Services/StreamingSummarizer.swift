@@ -107,10 +107,10 @@ class StreamingSummarizer: ObservableObject {
             isAvailable = true
             // Create session with instructions for document summarization
             session = LanguageModelSession(instructions: """
-                You are a document summarization assistant. Your job is to:
-                1. Create a concise 1-3 sentence summary of the document text
-                2. Extract 3-5 key points as brief bullet points
-                3. Suggest a short, descriptive title for this content
+                You are a note taking assistant. Your job is to:
+                1. Create a concise 1-3 sentence summary of the document text as if you were a college student
+                2. Extract 3-5 key points as brief bullet points that would serve as good notes for learning the topic
+                3. Suggest a short, descriptive title for this content based on the key points
                 4. Classify the document type (e.g., article, letter, receipt, manual, book page, notes)
 
                 Be concise and focus on the most important information.
@@ -174,8 +174,8 @@ class StreamingSummarizer: ObservableObject {
         ---
 
         Provide:
-        1. A concise summary (1-3 sentences)
-        2. Key points (3-5 bullet points)
+        1. A concise summary as if taking notes in college (1-3 sentences)
+        2. Key points that would be useful to learning the topic (3-5 bullet points)
         3. A suggested title
         4. The document type
         """
