@@ -1,7 +1,8 @@
 # Ray-Ban Meta - NoteBuddy
 
 <p align="center">
-  <img src="Smart%20Glasses/IMG_4942.jpeg" width="320" />
+  <img src="Smart%20Glasses/IMG_4942.PNG" width="320" />
+  
   <img src="Smart%20Glasses/IMG_4943.PNG" width="320" />
 </p>
 
