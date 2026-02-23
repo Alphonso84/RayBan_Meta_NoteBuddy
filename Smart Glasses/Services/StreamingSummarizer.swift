@@ -282,7 +282,12 @@ class StreamingSummarizer: ObservableObject {
         }
     }
 
-    /// Summarize an entire deck by aggregating card content
+    /// Maximum number of cards to summarize in a single prompt to stay within token limits
+    private let maxCardsPerBatch = 4
+
+    /// Summarize an entire deck by aggregating card content.
+    /// For decks with more cards than `maxCardsPerBatch`, uses a chunked map-reduce
+    /// approach: summarize batches of cards, then summarize the batch summaries.
     /// - Parameters:
     ///   - cardSummaries: Combined summaries from all cards
     ///   - cardCount: Number of cards in the deck
@@ -300,11 +305,34 @@ class StreamingSummarizer: ObservableObject {
         state = .preparing
 
         #if canImport(FoundationModels)
-        guard isAvailable, let session = session else {
+        guard isAvailable else {
             state = .error
             errorMessage = "Foundation Models not available"
             return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
         }
+
+        // Split card summaries into individual cards
+        let cardChunks = splitCardSummaries(cardSummaries)
+
+        if cardChunks.count > maxCardsPerBatch {
+            return await summarizeDeckChunked(cardChunks: cardChunks, cardCount: cardCount, deckTitle: deckTitle)
+        } else {
+            return await summarizeDeckDirect(cardSummaries: cardSummaries, cardCount: cardCount, deckTitle: deckTitle)
+        }
+        #else
+        return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    /// Direct single-pass summarization for small decks
+    private func summarizeDeckDirect(cardSummaries: String, cardCount: Int, deckTitle: String) async -> DeckSummaryOutput? {
+        // Create a fresh session for this summarization
+        let deckSession = LanguageModelSession(instructions: """
+            You are a note taking assistant that creates deck summaries from study cards.
+            Be concise and focus on synthesizing key themes across cards.
+            Use clear language suitable for text-to-speech.
+            """)
 
         state = .summarizing
 
@@ -328,25 +356,22 @@ class StreamingSummarizer: ObservableObject {
 
         do {
             var fullResponse = ""
-            let stream = session.streamResponse(to: prompt)
+            let stream = deckSession.streamResponse(to: prompt)
 
             for try await partialResponse in stream {
                 fullResponse = partialResponse.content
                 progress = min(0.9, progress + 0.03)
 
-                // Parse partial response and update UI
                 let partialOutput = parseDeckResponse(fullResponse, cardCount: cardCount)
                 streamingSummary = partialOutput.summary
                 streamingKeyPoints = partialOutput.keyThemes
             }
 
-            // Final parse
             let output = parseDeckResponse(fullResponse, cardCount: cardCount)
             streamingSummary = output.summary
             streamingKeyPoints = output.keyThemes
             progress = 1.0
             state = .complete
-
             return output
 
         } catch {
@@ -355,10 +380,134 @@ class StreamingSummarizer: ObservableObject {
             errorMessage = error.localizedDescription
             return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
         }
-        #else
-        return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
-        #endif
     }
+
+    /// Chunked map-reduce summarization for large decks.
+    /// Summarizes batches of cards separately, then combines batch summaries into a final summary.
+    private func summarizeDeckChunked(cardChunks: [String], cardCount: Int, deckTitle: String) async -> DeckSummaryOutput? {
+        state = .summarizing
+        streamingSummary = "Summarizing cards in batches..."
+
+        // Step 1: Split into batches
+        var batches: [[String]] = []
+        for i in stride(from: 0, to: cardChunks.count, by: maxCardsPerBatch) {
+            let end = min(i + maxCardsPerBatch, cardChunks.count)
+            batches.append(Array(cardChunks[i..<end]))
+        }
+
+        let totalBatches = batches.count
+        var batchSummaries: [String] = []
+
+        // Step 2: Summarize each batch with a fresh session
+        for (batchIndex, batch) in batches.enumerated() {
+            let batchSession = LanguageModelSession(instructions: """
+                You are a note taking assistant. Summarize the following study cards concisely.
+                Focus on the most important points. Use clear, simple language.
+                """)
+
+            let batchText = batch.joined(separator: "\n\n")
+            let batchPrompt = """
+            Summarize these \(batch.count) study cards from the deck "\(deckTitle)" into a brief paragraph and list of key points:
+
+            ---
+            \(batchText)
+            ---
+
+            Provide:
+            1. A brief summary (2-3 sentences)
+            2. Key points (2-3 bullet points)
+            """
+
+            streamingSummary = "Summarizing batch \(batchIndex + 1) of \(totalBatches)..."
+            progress = Double(batchIndex) / Double(totalBatches + 1) * 0.7
+
+            do {
+                let response = try await batchSession.respond(to: batchPrompt)
+                batchSummaries.append(response.content)
+                print("[StreamingSummarizer] Batch \(batchIndex + 1)/\(totalBatches) complete")
+            } catch {
+                print("[StreamingSummarizer] Batch \(batchIndex + 1) error: \(error)")
+                // Use the raw card text as fallback for this batch
+                batchSummaries.append(batchText)
+            }
+        }
+
+        // Step 3: Final summary from batch summaries with a fresh session
+        let finalSession = LanguageModelSession(instructions: """
+            You are a note taking assistant that creates deck summaries from study cards.
+            Be concise and focus on synthesizing key themes.
+            Use clear language suitable for text-to-speech.
+            """)
+
+        let combinedBatchSummaries = batchSummaries.enumerated()
+            .map { "Batch \($0.offset + 1):\n\($0.element)" }
+            .joined(separator: "\n\n")
+
+        let finalPrompt = """
+        You are creating a final summary for a study deck titled "\(deckTitle)" with \(cardCount) cards.
+
+        Here are summaries from different sections of the deck:
+
+        ---
+        \(combinedBatchSummaries)
+        ---
+
+        Create a comprehensive deck summary that:
+        1. Provides a cohesive overview (3-5 sentences) synthesizing all sections
+        2. Identifies 4-6 key themes or important points across the entire deck
+        3. Highlights connections between different sections
+
+        Focus on creating a unified summary. Use clear language suitable for text-to-speech.
+        """
+
+        streamingSummary = "Creating final deck summary..."
+        progress = 0.75
+
+        do {
+            var fullResponse = ""
+            let stream = finalSession.streamResponse(to: finalPrompt)
+
+            for try await partialResponse in stream {
+                fullResponse = partialResponse.content
+                progress = 0.75 + min(0.24, (progress - 0.75) + 0.03)
+
+                let partialOutput = parseDeckResponse(fullResponse, cardCount: cardCount)
+                streamingSummary = partialOutput.summary
+                streamingKeyPoints = partialOutput.keyThemes
+            }
+
+            let output = parseDeckResponse(fullResponse, cardCount: cardCount)
+            streamingSummary = output.summary
+            streamingKeyPoints = output.keyThemes
+            progress = 1.0
+            state = .complete
+            return output
+
+        } catch {
+            print("[StreamingSummarizer] Final deck summary error: \(error)")
+            state = .error
+            errorMessage = error.localizedDescription
+            return await createFallbackDeckSummary(from: combinedBatchSummaries, cardCount: cardCount)
+        }
+    }
+
+    /// Split combined card summaries string into individual card chunks
+    private func splitCardSummaries(_ combined: String) -> [String] {
+        // Split on the "Card N - " pattern used by combinedCardSummaries
+        let chunks = combined.components(separatedBy: "\n\n")
+            .reduce(into: [String]()) { result, part in
+                if part.hasPrefix("Card ") {
+                    result.append(part)
+                } else if var last = result.last {
+                    last += "\n\n" + part
+                    result[result.count - 1] = last
+                } else {
+                    result.append(part)
+                }
+            }
+        return chunks.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    #endif
 
     #if canImport(FoundationModels)
     /// Parse deck summary response

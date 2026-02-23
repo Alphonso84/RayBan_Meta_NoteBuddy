@@ -810,10 +810,10 @@ class DocumentReaderProcessor: ObservableObject {
             }
         }
 
-        // Step 2: Increase contrast slightly to make text stand out
+        // Step 2: Increase contrast to make text stand out (stronger for distance)
         if let contrastFilter = CIFilter(name: "CIColorControls") {
             contrastFilter.setValue(processedImage, forKey: kCIInputImageKey)
-            contrastFilter.setValue(1.1, forKey: kCIInputContrastKey) // Slight contrast boost
+            contrastFilter.setValue(1.3, forKey: kCIInputContrastKey) // Stronger contrast for distance
             contrastFilter.setValue(1.0, forKey: kCIInputSaturationKey)
             contrastFilter.setValue(0.0, forKey: kCIInputBrightnessKey)
             if let output = contrastFilter.outputImage {
@@ -824,11 +824,11 @@ class DocumentReaderProcessor: ObservableObject {
         // Step 3: Apply adaptive threshold if enabled (binarization for cleaner text)
         // This can help with uneven lighting but may lose detail
         if useAdaptiveThreshold {
-            // Use a subtle unsharp mask instead of hard thresholding
+            // Unsharp mask to sharpen text edges blurred by distance
             if let unsharpFilter = CIFilter(name: "CIUnsharpMask") {
                 unsharpFilter.setValue(processedImage, forKey: kCIInputImageKey)
-                unsharpFilter.setValue(1.0, forKey: kCIInputRadiusKey)
-                unsharpFilter.setValue(0.5, forKey: kCIInputIntensityKey)
+                unsharpFilter.setValue(1.5, forKey: kCIInputRadiusKey)
+                unsharpFilter.setValue(1.0, forKey: kCIInputIntensityKey)
                 if let output = unsharpFilter.outputImage {
                     processedImage = output
                 }
@@ -904,7 +904,8 @@ class DocumentReaderProcessor: ObservableObject {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.recognitionLanguages = ["en-US"]
-        // Don't set minimumTextHeight - let Vision decide what it can read
+        // Detect small text that appears at distance
+        request.minimumTextHeight = 0.01
 
         do {
             try handler.perform([request])

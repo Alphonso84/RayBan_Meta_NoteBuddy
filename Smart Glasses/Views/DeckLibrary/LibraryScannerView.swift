@@ -835,15 +835,16 @@ struct LibraryScannerView: View {
     /// Configure processor settings based on distance mode
     private func configureProcessorForDistanceMode() {
         if distanceModeEnabled {
-            // Distance mode: Optimized for reading distance scanning
-            // Scale to ~2500px for best Vision framework accuracy
-            processor.targetProcessingDimension = 2500
+            // Distance mode: Optimized for far distance scanning
+            // Aggressive upscale so Vision has more pixels after perspective crop
+            processor.targetProcessingDimension = 3500
             processor.preprocessImage = true
             processor.convertToGrayscale = true         // Improves OCR accuracy
-            processor.useAdaptiveThreshold = false      // Keep detail
-            processor.textConfidenceThreshold = 0.3     // Standard confidence
-            processor.minimumTextLines = 2
-            processor.minimumCharacters = 20
+            processor.useAdaptiveThreshold = true       // Sharpen text edges at distance
+            processor.textConfidenceThreshold = 0.2     // Accept lower-confidence text
+            processor.documentConfidenceThreshold = 0.35 // Detect documents at distance
+            processor.minimumTextLines = 1
+            processor.minimumCharacters = 15
         } else {
             // Close-up mode: Faster processing
             processor.targetProcessingDimension = 2000
