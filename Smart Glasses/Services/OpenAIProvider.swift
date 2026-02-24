@@ -443,6 +443,77 @@ class OpenAIProvider: LLMProvider {
         }
     }
 
+    // MARK: - Flashcard Generation
+
+    func generateFlashcards(from text: String, cardTitles: [String], count: Int) async throws -> [Flashcard] {
+        let systemPrompt = """
+        You are a flashcard generator for study material. Generate flashcards with a term/question on the front and answer/explanation on the back.
+        Each flashcard should test one concept clearly.
+
+        Respond with ONLY a JSON array, no other text:
+        [{"front": "Question or term", "back": "Answer or explanation", "sourceCard": "card title", "category": "optional category"}]
+
+        Rules:
+        - Keep front side concise (question or term)
+        - Back side should have complete but brief explanation
+        - Cover the most important concepts
+        - Vary between definitions, concepts, and applications
+        - sourceCard should match the most relevant card title from the provided list
+        """
+
+        let cardTitleList = cardTitles.joined(separator: ", ")
+        let userPrompt = """
+        Generate \(count) flashcards from this study material.
+        Card titles: \(cardTitleList)
+
+        Study material:
+        ---
+        \(text)
+        ---
+        """
+
+        let fullResponse = try await sendChatRequest(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            streaming: nil
+        )
+
+        return parseFlashcardResponse(fullResponse, fallbackTitles: cardTitles)
+    }
+
+    private func parseFlashcardResponse(_ content: String, fallbackTitles: [String]) -> [Flashcard] {
+        // Extract JSON array from response (handle markdown code blocks)
+        var jsonString = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let startRange = jsonString.range(of: "["),
+           let endRange = jsonString.range(of: "]", options: .backwards) {
+            jsonString = String(jsonString[startRange.lowerBound..<endRange.upperBound])
+        }
+
+        guard let data = jsonString.data(using: .utf8) else { return [] }
+
+        struct RawFlashcard: Decodable {
+            let front: String
+            let back: String
+            let sourceCard: String?
+            let category: String?
+        }
+
+        do {
+            let rawFlashcards = try JSONDecoder().decode([RawFlashcard].self, from: data)
+            return rawFlashcards.map { raw in
+                Flashcard(
+                    front: raw.front,
+                    back: raw.back,
+                    sourceCardTitle: raw.sourceCard ?? fallbackTitles.first ?? "Unknown",
+                    category: raw.category
+                )
+            }
+        } catch {
+            print("[OpenAIProvider] Flashcard JSON parse error: \(error)")
+            return []
+        }
+    }
+
     // MARK: - Response Parsing
 
     private func parseDocumentResponse(_ content: String, originalText: String) -> DocumentSummaryOutput {

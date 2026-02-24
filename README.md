@@ -35,6 +35,13 @@ Supports dual AI providers: [Apple Foundation Models](https://developer.apple.co
 - **Results & Review**: Score display with percentage, review missed questions with correct answers
 - **Haptic Feedback**: Tactile responses for correct and incorrect answers
 
+### Flashcard Study Mode
+- **AI-Generated Flashcards**: Create study flashcards from deck content with term/question on front and answer on back
+- **Realistic 3D Flip Animation**: Tap cards to flip with smooth spring animation
+- **Swipe Navigation**: Swipe left/right through flashcards like physical cards
+- **Print Support**: Export flashcards as PDF with 4 cards per page, formatted for double-sided printing
+- **Study Tracking**: Track cards studied, flip count, and session duration
+
 ### Study Organization
 - **Deck Management**: Organize cards into color-coded study decks (10 preset colors)
 - **Quick Capture**: Save cards without assigning to a deck for later organization
@@ -187,6 +194,16 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 5. Review your score and missed questions
 6. Retry to improve your recall
 
+### Flashcard Study
+
+1. Open a deck with 2+ cards from the Library tab
+2. Tap the **menu (⋯)** → **"Study Flashcards"**
+3. Wait for flashcards to generate (uses AI or key point extraction)
+4. **Tap** a card to flip between front (question) and back (answer)
+5. **Swipe left/right** to navigate between cards
+6. Tap **menu** → **"Print Flashcards"** to export as PDF for printing
+7. Tap **"Finish Study"** to see your session stats
+
 ### PDF Export
 
 1. Open a card in deck detail view
@@ -305,6 +322,9 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 | `CardPreviewSheet.swift` | Deck selector and card preview for saving |
 | `QuizView.swift` | Multiple-choice quiz interface with progress tracking |
 | `QuizResultsView.swift` | Quiz score display and missed questions review |
+| `FlashcardView.swift` | Flashcard study interface with swipe navigation |
+| `FlashcardCardView.swift` | Individual flashcard with 3D flip animation |
+| `FlashcardStudyResultsView.swift` | Study session stats and completion screen |
 | `PhoneCameraPreviewLayer.swift` | UIViewRepresentable for phone camera preview |
 
 #### Services
@@ -317,7 +337,8 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 | `OpenAIProvider.swift` | OpenAI API for summarization, deck summaries, quiz generation, and TTS |
 | `LLMProvider.swift` | Protocol abstraction for AI providers |
 | `QuizGenerator.swift` | Quiz question generation from deck cards |
-| `PDFGenerator.swift` | Formatted PDF export for cards |
+| `FlashcardGenerator.swift` | AI-powered flashcard generation from deck cards |
+| `PDFGenerator.swift` | Formatted PDF export for cards and flashcards |
 | `VoiceFeedbackManager.swift` | TTS (Apple + OpenAI), haptics, audio routing (singleton) |
 | `KeychainHelper.swift` | Secure API key storage |
 
@@ -327,6 +348,7 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 | `SummaryCard.swift` | Study card with summary, key points, source text, thumbnail |
 | `SummaryDeck.swift` | Card collection with color theme, deck summary, and key themes |
 | `QuizQuestion.swift` | Quiz question with options, correct answer, and source card |
+| `Flashcard.swift` | Flashcard with front/back content for study mode |
 | `DocumentReadingResult.swift` | OCR result structures with text blocks and confidence |
 
 ---
@@ -448,7 +470,8 @@ Smart Glasses/
 |-- Models/
 |   |-- SummaryCard.swift               # Card data model
 |   |-- SummaryDeck.swift               # Deck data model
-|   +-- QuizQuestion.swift              # Quiz data structures
+|   |-- QuizQuestion.swift              # Quiz data structures
+|   +-- Flashcard.swift                 # Flashcard data structures
 |
 |-- Views/
 |   |-- MainTabView.swift               # Tab navigation
@@ -461,10 +484,17 @@ Smart Glasses/
 |   |   |-- LibraryScannerView.swift    # Scanner interface
 |   |   +-- PhoneCameraPreviewLayer.swift # Phone camera preview
 |   |
-|   +-- DocumentScanner/
-|       |-- CardPreviewSheet.swift      # Save card sheet
-|       |-- QuizView.swift             # Quiz interface
-|       +-- QuizResultsView.swift      # Quiz results
+|   |-- DocumentScanner/
+|   |   +-- CardPreviewSheet.swift      # Save card sheet
+|   |
+|   |-- QuizMode/
+|   |   |-- QuizView.swift              # Quiz interface
+|   |   +-- QuizResultsView.swift       # Quiz results
+|   |
+|   +-- FlashcardMode/
+|       |-- FlashcardView.swift         # Flashcard study interface
+|       |-- FlashcardCardView.swift     # 3D flip card component
+|       +-- FlashcardStudyResultsView.swift # Study session results
 |
 |-- DocumentReader/
 |   |-- DocumentReaderProcessor.swift   # OCR engine
@@ -472,10 +502,11 @@ Smart Glasses/
 |
 |-- Services/
 |   |-- StreamingSummarizer.swift       # AI summarization (Apple + OpenAI)
-|   |-- PDFGenerator.swift              # PDF export
+|   |-- PDFGenerator.swift              # PDF export (cards + flashcards)
 |   |-- OpenAIProvider.swift            # OpenAI API integration
 |   |-- LLMProvider.swift               # AI provider protocol
 |   |-- QuizGenerator.swift             # Quiz question generation
+|   |-- FlashcardGenerator.swift        # Flashcard generation
 |   +-- KeychainHelper.swift            # Secure key storage
 |
 |-- Audio/

@@ -18,6 +18,7 @@ struct DeckDetailView: View {
     @State private var showingShareSheet = false
     @State private var showingDeckSummary = false
     @State private var showingQuiz = false
+    @State private var showingFlashcards = false
     @State private var pdfData: Data?
 
     @StateObject private var summarizer = StreamingSummarizer()
@@ -84,6 +85,12 @@ struct DeckDetailView: View {
                             } label: {
                                 Label("Start Quiz", systemImage: "questionmark.circle")
                             }
+
+                            Button {
+                                showingFlashcards = true
+                            } label: {
+                                Label("Study Flashcards", systemImage: "rectangle.on.rectangle.angled")
+                            }
                         }
 
                         Button {
@@ -110,6 +117,10 @@ struct DeckDetailView: View {
         }
         .sheet(isPresented: $showingQuiz) {
             QuizView(deck: deck)
+                .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showingFlashcards) {
+            FlashcardView(deck: deck)
                 .presentationDetents([.large])
         }
         .onAppear {
