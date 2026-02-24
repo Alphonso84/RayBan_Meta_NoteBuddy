@@ -20,4 +20,7 @@ protocol LLMProvider {
 
     /// Summarize an entire deck of cards, optionally streaming partial results
     func summarizeDeck(cardSummaries: String, cardCount: Int, deckTitle: String, streaming: ((String) -> Void)?) async throws -> DeckSummaryOutput
+
+    /// Generate multiple-choice quiz questions from study material
+    func generateQuestions(from text: String, cardTitles: [String], count: Int) async throws -> [QuizQuestion]
 }

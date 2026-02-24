@@ -361,6 +361,88 @@ class OpenAIProvider: LLMProvider {
         return data
     }
 
+    // MARK: - Quiz Question Generation
+
+    func generateQuestions(from text: String, cardTitles: [String], count: Int) async throws -> [QuizQuestion] {
+        let systemPrompt = """
+        You are a quiz generator for study material. Generate multiple-choice questions to test understanding.
+        Each question must have exactly 4 options with 1 correct answer.
+        Questions should test comprehension, not just recall.
+
+        Respond with ONLY a JSON array, no other text:
+        [{"question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 2, "sourceCard": "card title"}]
+
+        Rules:
+        - correctIndex is 0-3 indicating which option is correct
+        - IMPORTANT: Randomize the position of the correct answer. Do NOT always put it first. Distribute correctIndex evenly across 0, 1, 2, and 3.
+        - sourceCard should match the most relevant card title from the provided list
+        - Make wrong answers plausible but clearly incorrect
+        - Vary question types: definitions, comparisons, applications
+        """
+
+        let cardTitleList = cardTitles.joined(separator: ", ")
+        let userPrompt = """
+        Generate \(count) multiple-choice questions from this study material.
+        Card titles: \(cardTitleList)
+
+        Study material:
+        ---
+        \(text)
+        ---
+        """
+
+        let fullResponse = try await sendChatRequest(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            streaming: nil
+        )
+
+        return parseQuizResponse(fullResponse, fallbackTitles: cardTitles)
+    }
+
+    private func parseQuizResponse(_ content: String, fallbackTitles: [String]) -> [QuizQuestion] {
+        // Extract JSON array from response (handle markdown code blocks)
+        var jsonString = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let startRange = jsonString.range(of: "["),
+           let endRange = jsonString.range(of: "]", options: .backwards) {
+            jsonString = String(jsonString[startRange.lowerBound..<endRange.upperBound])
+        }
+
+        guard let data = jsonString.data(using: .utf8) else { return [] }
+
+        struct RawQuestion: Decodable {
+            let question: String
+            let options: [String]
+            let correctIndex: Int
+            let sourceCard: String?
+        }
+
+        do {
+            let rawQuestions = try JSONDecoder().decode([RawQuestion].self, from: data)
+            return rawQuestions.compactMap { raw in
+                guard raw.options.count == 4,
+                      raw.correctIndex >= 0,
+                      raw.correctIndex < 4 else { return nil }
+
+                // Shuffle options to guarantee randomized answer positions
+                let correctAnswer = raw.options[raw.correctIndex]
+                var shuffledOptions = raw.options
+                shuffledOptions.shuffle()
+                let newCorrectIndex = shuffledOptions.firstIndex(of: correctAnswer) ?? 0
+
+                return QuizQuestion(
+                    question: raw.question,
+                    options: shuffledOptions,
+                    correctAnswerIndex: newCorrectIndex,
+                    sourceCardTitle: raw.sourceCard ?? fallbackTitles.first ?? "Unknown"
+                )
+            }
+        } catch {
+            print("[OpenAIProvider] Quiz JSON parse error: \(error)")
+            return []
+        }
+    }
+
     // MARK: - Response Parsing
 
     private func parseDocumentResponse(_ content: String, originalText: String) -> DocumentSummaryOutput {

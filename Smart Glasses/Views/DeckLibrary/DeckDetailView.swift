@@ -17,6 +17,7 @@ struct DeckDetailView: View {
     @State private var showingEditSheet = false
     @State private var showingShareSheet = false
     @State private var showingDeckSummary = false
+    @State private var showingQuiz = false
     @State private var pdfData: Data?
 
     @StateObject private var summarizer = StreamingSummarizer()
@@ -77,6 +78,14 @@ struct DeckDetailView: View {
                             Label("Read All Cards", systemImage: "speaker.wave.3")
                         }
 
+                        if sortedCards.count >= 2 {
+                            Button {
+                                showingQuiz = true
+                            } label: {
+                                Label("Start Quiz", systemImage: "questionmark.circle")
+                            }
+                        }
+
                         Button {
                             exportCurrentCardPDF()
                         } label: {
@@ -98,6 +107,10 @@ struct DeckDetailView: View {
         }
         .sheet(isPresented: $showingDeckSummary) {
             DeckSummarySheet(deck: deck, summarizer: summarizer)
+        }
+        .sheet(isPresented: $showingQuiz) {
+            QuizView(deck: deck)
+                .presentationDetents([.large])
         }
         .onAppear {
             deck.markAccessed()
