@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Main library view showing all decks and unsorted cards
 struct DeckLibraryView: View {
@@ -19,6 +20,9 @@ struct DeckLibraryView: View {
     @State private var searchText = ""
     @State private var showingNewDeckSheet = false
     @State private var selectedCard: SummaryCard?
+    @State private var showingPDFPicker = false
+    @State private var importedPDFURL: URL?
+    @State private var showingPDFImportView = false
 
     var body: some View {
         NavigationStack {
@@ -49,10 +53,20 @@ struct DeckLibraryView: View {
             .searchable(text: $searchText, prompt: "Search cards...")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingNewDeckSheet = true
+                    Menu {
+                        Button {
+                            showingNewDeckSheet = true
+                        } label: {
+                            Label("New Deck", systemImage: "folder.badge.plus")
+                        }
+
+                        Button {
+                            showingPDFPicker = true
+                        } label: {
+                            Label("Import PDF", systemImage: "doc.badge.plus")
+                        }
                     } label: {
-                        Image(systemName: "folder.badge.plus")
+                        Image(systemName: "plus")
                     }
                 }
             }
@@ -61,6 +75,23 @@ struct DeckLibraryView: View {
             }
             .sheet(item: $selectedCard) { card in
                 CardDetailSheet(card: card)
+            }
+            .fileImporter(
+                isPresented: $showingPDFPicker,
+                allowedContentTypes: [.pdf]
+            ) { result in
+                switch result {
+                case .success(let url):
+                    importedPDFURL = url
+                    showingPDFImportView = true
+                case .failure:
+                    break
+                }
+            }
+            .sheet(isPresented: $showingPDFImportView) {
+                if let url = importedPDFURL {
+                    PDFImportView(pdfURL: url, targetDeck: nil)
+                }
             }
         }
     }

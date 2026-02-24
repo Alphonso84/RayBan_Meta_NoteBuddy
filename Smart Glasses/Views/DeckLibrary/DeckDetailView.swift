@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Detail view for a deck showing cards in a carousel
 struct DeckDetailView: View {
@@ -19,6 +20,9 @@ struct DeckDetailView: View {
     @State private var showingDeckSummary = false
     @State private var showingQuiz = false
     @State private var showingFlashcards = false
+    @State private var showingPDFPicker = false
+    @State private var importedPDFURL: URL?
+    @State private var showingPDFImportView = false
     @State private var pdfData: Data?
 
     @StateObject private var summarizer = StreamingSummarizer()
@@ -99,6 +103,12 @@ struct DeckDetailView: View {
                             Label("Export Card as PDF", systemImage: "doc.text")
                         }
                     }
+
+                    Button {
+                        showingPDFPicker = true
+                    } label: {
+                        Label("Import PDF", systemImage: "doc.badge.plus")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -122,6 +132,23 @@ struct DeckDetailView: View {
         .sheet(isPresented: $showingFlashcards) {
             FlashcardView(deck: deck)
                 .presentationDetents([.large])
+        }
+        .fileImporter(
+            isPresented: $showingPDFPicker,
+            allowedContentTypes: [.pdf]
+        ) { result in
+            switch result {
+            case .success(let url):
+                importedPDFURL = url
+                showingPDFImportView = true
+            case .failure:
+                break
+            }
+        }
+        .sheet(isPresented: $showingPDFImportView) {
+            if let url = importedPDFURL {
+                PDFImportView(pdfURL: url, targetDeck: deck)
+            }
         }
         .onAppear {
             deck.markAccessed()
