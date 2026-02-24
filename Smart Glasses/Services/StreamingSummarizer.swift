@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 #if canImport(FoundationModels)
 import FoundationModels
@@ -68,6 +69,12 @@ class StreamingSummarizer: ObservableObject {
 
     /// Progress (0-1) for visual feedback
     @Published var progress: Double = 0
+
+    // MARK: - Provider Selection
+
+    @AppStorage("selectedProvider") var selectedProvider: String = "apple"
+
+    private lazy var openAIProvider = OpenAIProvider()
 
     // MARK: - Private Properties
 
@@ -157,6 +164,11 @@ class StreamingSummarizer: ObservableObject {
         errorMessage = nil
         state = .preparing
 
+        // Route to OpenAI if selected and available
+        if selectedProvider == "openai", await openAIProvider.isAvailable {
+            return await summarizeWithOpenAI(text)
+        }
+
         #if canImport(FoundationModels)
         guard isAvailable, let session = session else {
             state = .error
@@ -225,6 +237,36 @@ class StreamingSummarizer: ObservableObject {
         // Fallback for non-iOS 26 devices - use typewriter effect
         return await createFallbackSummaryWithStreaming(from: text)
         #endif
+    }
+
+    /// Summarize using OpenAI provider
+    private func summarizeWithOpenAI(_ text: String) async -> DocumentSummaryOutput? {
+        state = .summarizing
+        print("[StreamingSummarizer] Using OpenAI provider")
+
+        do {
+            let output = try await openAIProvider.summarize(text) { [weak self] partial in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.streamingSummary = partial
+                    self.progress = min(0.9, self.progress + 0.02)
+                }
+            }
+
+            streamingSummary = output.summary
+            streamingKeyPoints = output.keyPoints
+            suggestedTitle = output.suggestedTitle
+            documentType = output.documentType
+            progress = 1.0
+            state = .complete
+            return output
+
+        } catch {
+            print("[StreamingSummarizer] OpenAI error: \(error)")
+            state = .error
+            errorMessage = error.localizedDescription
+            return await createFallbackSummaryWithStreaming(from: text)
+        }
     }
 
     /// Create fallback summary with typewriter streaming effect
@@ -303,6 +345,11 @@ class StreamingSummarizer: ObservableObject {
         progress = 0
         errorMessage = nil
         state = .preparing
+
+        // Route to OpenAI if selected and available
+        if selectedProvider == "openai", await openAIProvider.isAvailable {
+            return await summarizeDeckWithOpenAI(cardSummaries: cardSummaries, cardCount: cardCount, deckTitle: deckTitle)
+        }
 
         #if canImport(FoundationModels)
         guard isAvailable else {
@@ -559,6 +606,38 @@ class StreamingSummarizer: ObservableObject {
         )
     }
     #endif
+
+    /// Summarize deck using OpenAI provider
+    private func summarizeDeckWithOpenAI(cardSummaries: String, cardCount: Int, deckTitle: String) async -> DeckSummaryOutput? {
+        state = .summarizing
+        print("[StreamingSummarizer] Using OpenAI for deck summary")
+
+        do {
+            let output = try await openAIProvider.summarizeDeck(
+                cardSummaries: cardSummaries,
+                cardCount: cardCount,
+                deckTitle: deckTitle
+            ) { [weak self] partial in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.streamingSummary = partial
+                    self.progress = min(0.9, self.progress + 0.02)
+                }
+            }
+
+            streamingSummary = output.summary
+            streamingKeyPoints = output.keyThemes
+            progress = 1.0
+            state = .complete
+            return output
+
+        } catch {
+            print("[StreamingSummarizer] OpenAI deck summary error: \(error)")
+            state = .error
+            errorMessage = error.localizedDescription
+            return await createFallbackDeckSummary(from: cardSummaries, cardCount: cardCount)
+        }
+    }
 
     /// Create fallback deck summary
     private func createFallbackDeckSummary(from cardSummaries: String, cardCount: Int) async -> DeckSummaryOutput {

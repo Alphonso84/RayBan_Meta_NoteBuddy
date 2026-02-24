@@ -15,6 +15,20 @@ struct SettingsView: View {
     @AppStorage("speakSummaries") private var speakSummaries = false
     @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
     @AppStorage("multiPageModeEnabled") private var multiPageModeEnabled = false
+    @AppStorage("selectedProvider") private var selectedProvider = "apple"
+    @AppStorage("openAIModel") private var openAIModel = "gpt-4o-mini"
+
+    @State private var apiKeyInput = ""
+    @State private var apiKeySaved = false
+    @State private var availableModels: [String] = []
+    @State private var isFetchingModels = false
+    @State private var isTestingConnection = false
+    @State private var connectionTestResult: ConnectionTestResult?
+
+    private enum ConnectionTestResult {
+        case success
+        case failure(String)
+    }
 
     var body: some View {
         NavigationStack {
@@ -128,6 +142,101 @@ struct SettingsView: View {
                     Text("Single-page mode auto-summarizes immediately after capture. Multi-page mode lets you scan multiple pages before generating one combined summary.")
                 }
 
+                // AI Provider Section
+                Section {
+                    Picker("Provider", selection: $selectedProvider) {
+                        Text("Apple Intelligence").tag("apple")
+                        Text("OpenAI").tag("openai")
+                    }
+                    .pickerStyle(.segmented)
+
+                    if selectedProvider == "openai" {
+                        // API Key
+                        HStack {
+                            SecureField("API Key", text: $apiKeyInput)
+                                .textContentType(.password)
+                                .autocorrectionDisabled()
+
+                            if apiKeySaved {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+
+                            Button("Save") {
+                                KeychainHelper.save(key: "openai_api_key", string: apiKeyInput)
+                                apiKeySaved = true
+                                apiKeyInput = ""
+                            }
+                            .disabled(apiKeyInput.isEmpty)
+                        }
+
+                        // Model Picker
+                        HStack {
+                            if availableModels.isEmpty {
+                                TextField("Model", text: $openAIModel)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                            } else {
+                                Picker("Model", selection: $openAIModel) {
+                                    ForEach(availableModels, id: \.self) { model in
+                                        Text(model).tag(model)
+                                    }
+                                }
+                            }
+
+                            Button {
+                                fetchModels()
+                            } label: {
+                                if isFetchingModels {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                }
+                            }
+                            .disabled(isFetchingModels)
+                        }
+
+                        // Test Connection
+                        Button {
+                            testConnection()
+                        } label: {
+                            HStack {
+                                Label("Test Connection", systemImage: "antenna.radiowaves.left.and.right")
+                                Spacer()
+                                if isTestingConnection {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else if let result = connectionTestResult {
+                                    switch result {
+                                    case .success:
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    case .failure:
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.red)
+                                    }
+                                }
+                            }
+                        }
+                        .disabled(isTestingConnection)
+
+                        if case .failure(let message) = connectionTestResult {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } header: {
+                    Text("AI Provider")
+                } footer: {
+                    if selectedProvider == "openai" {
+                        Text("Your API key is stored securely in the Keychain. Tap Refresh to load available models from OpenAI.")
+                    } else {
+                        Text("Apple Intelligence runs on-device and requires iOS 26+.")
+                    }
+                }
+
                 // About Section
                 Section {
                     HStack {
@@ -150,6 +259,8 @@ struct SettingsView: View {
                     await manager.refreshRegistrationState()
                     await manager.refreshCameraPermissionStatus()
                 }
+                // Check if API key already exists
+                apiKeySaved = KeychainHelper.loadString(key: "openai_api_key") != nil
             }
         }
     }
@@ -189,6 +300,47 @@ struct SettingsView: View {
             return .secondary
         @unknown default:
             return .secondary
+        }
+    }
+
+    // MARK: - AI Provider Helpers
+
+    private func fetchModels() {
+        isFetchingModels = true
+        let provider = OpenAIProvider()
+        Task {
+            do {
+                let models = try await provider.fetchAvailableModels()
+                await MainActor.run {
+                    availableModels = models
+                    isFetchingModels = false
+                }
+            } catch {
+                await MainActor.run {
+                    isFetchingModels = false
+                    connectionTestResult = .failure(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func testConnection() {
+        isTestingConnection = true
+        connectionTestResult = nil
+        let provider = OpenAIProvider()
+        Task {
+            do {
+                let success = try await provider.testConnection()
+                await MainActor.run {
+                    connectionTestResult = success ? .success : .failure("Connection failed")
+                    isTestingConnection = false
+                }
+            } catch {
+                await MainActor.run {
+                    connectionTestResult = .failure(error.localizedDescription)
+                    isTestingConnection = false
+                }
+            }
         }
     }
 }

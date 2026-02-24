@@ -81,9 +81,10 @@ struct ScanDocumentIntent: AppIntent {
 
         let extractedText = result.extractedText
 
-        // Summarize the document using AI
+        // Summarize the document using AI (respects provider setting)
         let summarizer = StreamingSummarizer()
         await summarizer.checkAvailability()
+        // Provider selection is read from @AppStorage automatically
 
         guard let summaryOutput = await summarizer.summarize(extractedText) else {
             // Fallback to raw text if summarization fails
