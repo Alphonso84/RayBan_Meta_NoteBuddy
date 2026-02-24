@@ -2,40 +2,58 @@
 
 <p align="center">
   <img src="Smart%20Glasses/IMG_4942.PNG" width="320" />
-  
+
   <img src="Smart%20Glasses/IMG_4943.PNG" width="320" />
 </p>
 
-A powerful iOS application that pairs with Ray-Ban Meta smart glasses (via Meta Wearables SDK https://github.com/facebook/meta-wearables-dat-ios) and transforms physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses, extract text with OCR, generate intelligent summaries using Apple's Foundation Models(https://developer.apple.com/documentation/FoundationModels) on-device Apple Intelligence, and organize content into study decks. Because the app utilizes Apple's Foundation Models On Device LLM; this app does not require a internet connection.
+A powerful iOS application that pairs with Ray-Ban Meta smart glasses (via [Meta Wearables SDK](https://github.com/facebook/meta-wearables-dat-ios)) to transform physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses — or use your phone's camera as a fallback — extract text with OCR, generate intelligent summaries, and organize content into study decks with quiz mode.
+
+Supports dual AI providers: [Apple Foundation Models](https://developer.apple.com/documentation/FoundationModels) for fully on-device, offline summarization, and OpenAI for cloud-powered summarization, text-to-speech, and quiz generation.
 
 ## Features
 
 ### Document Scanning
 - **Hands-Free Scanning**: Use Meta Ray-Ban smart glasses camera for document capture
+- **Phone Camera Fallback**: Use your iPhone's built-in camera when glasses aren't connected
 - **Auto-Capture Mode**: Automatically detects document boundaries and captures when stable
-- **Multi-Page Support**: Scan multiple pages and combine them into a single summary
-- **Real-Time Boundary Detection**: Visual overlay shows detected document edges
-- **Distance Mode**: Enhanced OCR processing for normal reading distance scanning
+- **Multi-Page Support**: Scan multiple pages and combine them into a single summary card
+- **Real-Time Boundary Detection**: Visual overlay shows detected document edges with color-coded stability
+- **Distance Mode**: Enhanced OCR processing with upscaling, grayscale, and adaptive thresholding
 - **Perspective Correction**: Automatic skew correction for angled documents
 
-### AI-Powered Summarization
-- **On-Device Processing**: Uses Apple Foundation Models for privacy-preserving summarization
+### AI-Powered Summarization (Dual Provider)
+- **Apple Intelligence (On-Device)**: Uses Foundation Models for privacy-preserving, offline summarization (iOS 26+)
+- **OpenAI (Cloud)**: Supports gpt-4o-mini, gpt-4, and custom models for cloud summarization
 - **Streaming Output**: Watch summaries generate in real-time, token by token
-- **Smart Extraction**: Automatically generates titles, summaries, and key points
+- **Smart Extraction**: Automatically generates titles, summaries (1-3 sentences), and key points (3-5 bullets)
 - **Document Classification**: Identifies document type (article, letter, receipt, etc.)
-- **Fallback Support**: Graceful degradation on devices without Foundation Models
+- **Deck-Level Summaries**: Aggregate summaries and key themes across all cards in a deck using map-reduce for large decks
+
+### Quiz Mode
+- **Multiple-Choice Questions**: Generate 10+ questions from deck content for active recall study
+- **Dual AI Support**: Generate quizzes with OpenAI or Apple Intelligence, with fallback generation from key points
+- **Results & Review**: Score display with percentage, review missed questions with correct answers
+- **Haptic Feedback**: Tactile responses for correct and incorrect answers
 
 ### Study Organization
-- **Deck Management**: Organize cards into color-coded study decks
+- **Deck Management**: Organize cards into color-coded study decks (10 preset colors)
 - **Quick Capture**: Save cards without assigning to a deck for later organization
 - **Card Carousel**: Swipe through cards in a deck with playback controls
-- **Text-to-Speech**: Listen to summaries through glasses speakers via Bluetooth
-- **Search & Filter**: Find cards across all decks
+- **PDF Export**: Export individual cards as formatted, shareable PDFs
+- **Search & Filter**: Find cards and decks across your entire library
+- **Deck Summaries**: Generate aggregated summaries and key themes for entire decks
 
-### Audio Feedback
+### Audio & Text-to-Speech
+- **Apple TTS**: Built-in speech synthesis for instant feedback
+- **OpenAI TTS**: High-quality cloud voices (nova, alloy, ash, coral, echo, fable, ballad, onyx, sage, shimmer)
+- **Smart Audio Routing**: Automatically routes audio to glasses speakers (Bluetooth) or phone speakers based on connection state
 - **Haptic & Audio Cues**: Feedback for capture success, stability progress, and errors
-- **Bluetooth A2DP**: Audio plays through smart glasses speakers when connected
 - **Voice Announcements**: Status updates and card content read aloud
+
+### Siri Shortcuts
+- **"Scan document with Smart Glasses"**: Hands-free scanning via Siri
+- Automates the full pipeline: connect glasses, capture, OCR, summarize
+- Returns extracted text and summary
 
 ---
 
@@ -43,7 +61,7 @@ A powerful iOS application that pairs with Ray-Ban Meta smart glasses (via Meta 
 
 ### Hardware
 - **iPhone** running **iOS 26+** (required for Apple Foundation Models AI summarization)
-- **Meta Ray-Ban Smart Glasses** (required for document scanning)
+- **Meta Ray-Ban Smart Glasses** (optional — phone camera works as fallback)
 
 ### Software
 - **Xcode 16+** for building
@@ -62,9 +80,11 @@ Built-in Apple frameworks used:
 |-----------|---------|
 | `SwiftUI` / `SwiftData` | UI and persistence |
 | `Vision` | Document detection and OCR |
-| `CoreImage` | Image processing |
+| `CoreImage` | Image processing and perspective correction |
 | `FoundationModels` | On-device AI (iOS 26+) |
-| `AVFoundation` | Audio/Speech synthesis |
+| `AVFoundation` | Camera capture, audio, speech synthesis |
+| `PDFKit` | PDF document generation |
+| `AppIntents` | Siri Shortcuts integration |
 
 ---
 
@@ -75,10 +95,10 @@ Built-in Apple frameworks used:
 Before you begin, make sure you have:
 
 - [ ] iPhone with iOS 26+ installed
-- [ ] Meta Ray-Ban Smart Glasses paired with your iPhone
-- [ ] Meta AI App installed from the App Store
 - [ ] Xcode 16+ installed on your Mac
 - [ ] Apple Developer Account (free accounts work for personal devices)
+- [ ] Meta Ray-Ban Smart Glasses paired with your iPhone (optional)
+- [ ] Meta AI App installed from the App Store (if using glasses)
 
 ### Step 1: Clone the Repository
 
@@ -122,7 +142,7 @@ On your iPhone:
    - Go to **Settings** > **General** > **VPN & Device Management**
    - Tap your developer certificate and tap **Trust**
 
-### Step 6: Connect Your Glasses
+### Step 6: Connect Your Glasses (Optional)
 
 1. Launch the app on your iPhone
 2. Navigate to the **Settings** tab
@@ -130,49 +150,58 @@ On your iPhone:
 4. Follow the on-screen prompts to complete registration
 5. Grant camera permissions when prompted
 
-You're ready to scan!
+If you don't have glasses, you can use the **Phone Camera** fallback on the Scan tab.
 
 ---
 
 ## How to Use
 
-### Initial Setup
-
-1. **Launch the App** - Open Smart Glasses on your iPhone
-2. **Connect Glasses** - Navigate to the Settings tab and tap "Connect Glasses"
-3. **Complete Registration** - Follow the prompts on your Meta Ray-Ban glasses
-4. **Grant Permissions** - Allow camera access when prompted
-
 ### Scanning Documents
 
 1. **Open Scanner** - Tap the Scan tab (viewfinder icon)
-2. **Point at Document** - Hold a document in view of your glasses
-3. **Wait for Detection** - A cyan boundary appears around detected documents
-4. **Hold Steady** - The progress ring fills as you hold still
-5. **Auto-Capture** - Document captures automatically when stable (or tap Manual Capture)
+2. **Choose Source**:
+   - If glasses are connected, the glasses camera feed starts automatically
+   - If not, tap **"Use Phone Camera"** to use your iPhone's camera
+3. **Point at Document** - Hold a document in view
+4. **Wait for Detection** - A cyan boundary appears around detected documents
+5. **Hold Steady** - The progress ring fills as you hold still (boundary turns yellow, then green)
+6. **Auto-Capture** - Document captures automatically when stable (or tap Manual Capture)
+7. **Review Summary** - AI generates title, summary, and key points in real-time
+8. **Save Card** - Choose a deck and save
 
 ### Multi-Page Scanning
 
-1. **Scan First Page** - Follow standard scanning process
-2. **Add Page** - Tap "Add Page" to include and continue
-3. **Scan Additional Pages** - Repeat for all pages
-4. **Finish** - Tap "Done" to combine and summarize all pages
-5. **Skip** - Tap "Skip" to discard current page without adding
+1. Toggle **Multi** mode in the top bar
+2. **Scan First Page** - Follow standard scanning process
+3. **Add Page** - Tap "Add Page" to include and continue scanning
+4. **Scan Additional Pages** - Repeat for all pages
+5. **Finish** - Tap "Done" to combine all pages and summarize
+6. **Skip** - Tap "Skip" to discard current page without adding
 
-### Saving Cards
+### Quiz Mode
 
-1. **Review Summary** - Check the generated title, summary, and key points
-2. **Save Card** - Tap "Save Card" to open deck selector
-3. **Choose Deck** - Select an existing deck or create new
-4. **Confirm** - Tap "Save" to persist the card
+1. Open a deck from the Library tab
+2. Tap the **quiz icon** in the deck options
+3. Wait for questions to generate (uses AI or key point extraction)
+4. Answer multiple-choice questions
+5. Review your score and missed questions
+6. Retry to improve your recall
+
+### PDF Export
+
+1. Open a card in deck detail view
+2. Tap the **share/export** option
+3. A formatted PDF is generated with title, summary, key points, and source text
+4. Share via the iOS share sheet
 
 ### Managing Decks
 
 1. **View Library** - Tap the Library tab (books icon)
-2. **Browse Decks** - Scroll through your deck grid
-3. **Open Deck** - Tap a deck to view its cards
-4. **Navigate Cards** - Swipe or use arrow buttons to browse
-5. **Listen** - Tap play button to hear card content
+2. **Browse Decks** - Scroll through your deck grid with stats
+3. **Create Deck** - Tap "+" to create a new deck with title, description, and color
+4. **Open Deck** - Tap a deck to view its cards in a carousel
+5. **Generate Deck Summary** - Tap the summary option to aggregate insights across all cards
+6. **Listen** - Tap play to hear card content or deck summaries via TTS
 
 ---
 
@@ -184,8 +213,17 @@ You're ready to scan!
 | Status | Connection status indicator (green/yellow/red) |
 | Registration | Registration state with glasses |
 | Stream | Video streaming status |
+| Camera Permission | Request glasses camera access |
 | Connect/Disconnect | Manage glasses pairing |
-| Start/Stop Stream | Control video feed |
+
+### AI Provider
+| Setting | Description |
+|---------|-------------|
+| Provider | Apple Intelligence (on-device) or OpenAI (cloud) |
+| OpenAI API Key | Stored securely in Keychain |
+| OpenAI Model | Select from available models (with refresh) |
+| OpenAI Voice | TTS voice selection (10 voices) |
+| Test Connection | Verify OpenAI API connectivity |
 
 ### Scanning Options
 | Setting | Default | Description |
@@ -213,27 +251,32 @@ You're ready to scan!
 |   +-------v-------+   +-------v-------+   +-------v-------+       |
 |   |  DeckLibrary  |   |LibraryScanner |   | SettingsView  |       |
 |   |     View      |   |     View      |   |               |       |
-|   +-------+-------+   +-------+-------+   +---------------+       |
-|           |                   |                                   |
-|   +-------v-------+   +-------v-------+                           |
-|   |  DeckDetail   |   |   Document    |                           |
-|   |     View      |   |   Boundary    |                           |
-|   |               |   |   Overlay     |                           |
-|   +---------------+   +---------------+                           |
-|                                                                   |
+|   +--+----+-------+   +--+----+-------+   +---------------+       |
+|      |    |              |    |                                   |
+|   +--v-+  +--v------+ +--v--+ +--v-----------+                   |
+|   |Deck|  |  Quiz   | |Phone| |   Document   |                   |
+|   |Det.|  |  View   | |Cam  | |   Boundary   |                   |
+|   |View|  |  +------+ |Prev.| |   Overlay    |                   |
+|   |    |  |  |Quiz  | |Layer| +--v-----------+                   |
+|   +----+  |  |Res.  | +-----+                                    |
+|           +--+------+                                             |
 +------------------------------------------------------------------+
 |                          SERVICES                                 |
 |   +---------------+   +---------------+   +---------------+       |
 |   |  Wearables    |   |   Document    |   |  Streaming    |       |
 |   |   Manager     |<--|    Reader     |-->|  Summarizer   |       |
-|   |  (glasses)    |   |   Processor   |   |     (AI)      |       |
-|   +-------+-------+   +-------+-------+   +-------+-------+       |
-|           |                   |                   |               |
-|   +-------v-------+   +-------v-------+   +-------v-------+       |
-|   |   Meta SDK    |   |    Vision     |   |  Foundation   |       |
-|   |  MWDATCamera  |   |   Framework   |   |    Models     |       |
+|   |  (glasses)    |   |   Processor   |   | (Apple/OpenAI)|       |
 |   +---------------+   +---------------+   +---------------+       |
-|                                                                   |
+|   +---------------+   +---------------+   +---------------+       |
+|   |  PhoneCamera  |   |    Quiz       |   |     PDF       |       |
+|   |   Manager     |   |   Generator   |   |   Generator   |       |
+|   |  (fallback)   |   |              |   |               |       |
+|   +---------------+   +---------------+   +---------------+       |
+|   +---------------+   +---------------+   +---------------+       |
+|   |VoiceFeedback  |   |   OpenAI      |   |   Keychain    |       |
+|   |   Manager     |   |   Provider    |   |    Helper     |       |
+|   |  (TTS/haptic) |   |  (cloud AI)   |   |  (API keys)   |       |
+|   +---------------+   +---------------+   +---------------+       |
 +------------------------------------------------------------------+
 |                        DATA LAYER                                 |
 |   +-----------------------------------------------------+         |
@@ -254,39 +297,61 @@ You're ready to scan!
 | View | Purpose |
 |------|---------|
 | `MainTabView.swift` | Three-tab navigation (Library, Scan, Settings) |
-| `DeckLibraryView.swift` | Deck grid with stats and quick capture section |
-| `DeckDetailView.swift` | Card carousel with playback controls |
-| `LibraryScannerView.swift` | Full scanner interface with auto-capture |
-| `SettingsView.swift` | Glasses connection and app preferences |
-| `DocumentBoundaryOverlay.swift` | Real-time boundary visualization |
-| `CardPreviewSheet.swift` | Deck selector and card preview |
+| `DeckLibraryView.swift` | Deck grid with stats, search, and quick capture section |
+| `DeckDetailView.swift` | Card carousel with playback controls and deck summary |
+| `LibraryScannerView.swift` | Full scanner interface with auto-capture and source selection |
+| `SettingsView.swift` | Glasses connection, AI provider config, scanning preferences |
+| `DocumentBoundaryOverlay.swift` | Real-time boundary visualization with stability indicators |
+| `CardPreviewSheet.swift` | Deck selector and card preview for saving |
+| `QuizView.swift` | Multiple-choice quiz interface with progress tracking |
+| `QuizResultsView.swift` | Quiz score display and missed questions review |
+| `PhoneCameraPreviewLayer.swift` | UIViewRepresentable for phone camera preview |
 
 #### Services
 | Service | Purpose |
 |---------|---------|
-| `WearablesManager.swift` | Meta glasses connection hub (singleton) |
-| `DocumentReaderProcessor.swift` | Document detection and OCR engine |
-| `StreamingSummarizer.swift` | AI summarization with Foundation Models |
-| `VoiceFeedbackManager.swift` | Audio/haptic feedback system (singleton) |
+| `WearablesManager.swift` | Meta glasses connection, streaming, and photo capture (singleton) |
+| `PhoneCameraManager.swift` | Phone camera fallback with AVCaptureSession |
+| `DocumentReaderProcessor.swift` | Document detection, OCR, auto-capture, multi-page sessions |
+| `StreamingSummarizer.swift` | AI summarization with Apple Foundation Models and OpenAI |
+| `OpenAIProvider.swift` | OpenAI API for summarization, deck summaries, quiz generation, and TTS |
+| `LLMProvider.swift` | Protocol abstraction for AI providers |
+| `QuizGenerator.swift` | Quiz question generation from deck cards |
+| `PDFGenerator.swift` | Formatted PDF export for cards |
+| `VoiceFeedbackManager.swift` | TTS (Apple + OpenAI), haptics, audio routing (singleton) |
+| `KeychainHelper.swift` | Secure API key storage |
 
 #### Models
 | Model | Purpose |
 |-------|---------|
-| `SummaryCard.swift` | Study card with summary, key points, source text |
-| `SummaryDeck.swift` | Collection of cards with color theming |
-| `DocumentReadingResult.swift` | OCR result structures |
+| `SummaryCard.swift` | Study card with summary, key points, source text, thumbnail |
+| `SummaryDeck.swift` | Card collection with color theme, deck summary, and key themes |
+| `QuizQuestion.swift` | Quiz question with options, correct answer, and source card |
+| `DocumentReadingResult.swift` | OCR result structures with text blocks and confidence |
 
 ---
 
 ## Document Processing Pipeline
 
 ```
-Video Frame (from Smart Glasses)
+Camera Source (Glasses or Phone)
          |
          v
 +-------------------------+
 |  Document Detection     |  VNDetectDocumentSegmentationRequest
 |  (boundary detection)   |
++-----------+-------------+
+            |
+            v
++-------------------------+
+|  Stability Tracking     |  8 stable frames, <3% movement
+|  (auto-capture)         |  Haptic feedback at 25/50/75%
++-----------+-------------+
+            |
+            v
++-------------------------+
+|  High-Res Photo Capture |  Glasses: StreamSession.capturePhoto()
+|                         |  Phone: AVCapturePhotoOutput
 +-----------+-------------+
             |
             v
@@ -299,7 +364,7 @@ Video Frame (from Smart Glasses)
 +-------------------------+
 |  Image Enhancement      |  CISharpenLuminance
 |  (Distance Mode only)   |  CIColorControls (contrast)
-|                         |  CIUnsharpMask
+|                         |  Grayscale, adaptive threshold
 +-----------+-------------+
             |
             v
@@ -310,8 +375,8 @@ Video Frame (from Smart Glasses)
             |
             v
 +-------------------------+
-|  AI Summarization       |  LanguageModelSession (Foundation Models)
-|  (on-device)            |  or fallback heuristic parsing
+|  AI Summarization       |  Apple Foundation Models (on-device)
+|                         |  or OpenAI API (cloud)
 +-----------+-------------+
             |
             v
@@ -332,7 +397,7 @@ final class SummaryCard {
     var keyPoints: [String]        // 3-5 extracted key points
     var sourceText: String         // Original OCR text
     var pageNumber: Int?           // For multi-page documents
-    var thumbnailData: Data?       // JPEG thumbnail
+    var thumbnailData: Data?       // JPEG thumbnail (external storage)
     var createdAt: Date
     var deck: SummaryDeck?         // Optional deck relationship
 }
@@ -345,11 +410,25 @@ final class SummaryDeck {
     var id: UUID
     var title: String
     var deckDescription: String?
-    var colorHex: String           // UI color theme
+    var colorHex: String           // UI color theme (10 presets)
     var cards: [SummaryCard]       // @Relationship(deleteRule: .cascade)
     var createdAt: Date
     var lastAccessedAt: Date
-    var isQuickCapture: Bool
+    var isQuickCapture: Bool       // Special "Quick Capture" deck
+    var deckSummary: String?       // Aggregated deck summary
+    var deckKeyPoints: [String]?   // Key themes across all cards
+    var summaryGeneratedAt: Date?  // Tracks summary freshness
+}
+```
+
+### QuizQuestion
+```swift
+struct QuizQuestion: Identifiable {
+    var id: UUID
+    var question: String
+    var options: [String]          // 4 multiple-choice options
+    var correctAnswerIndex: Int
+    var sourceCardTitle: String
 }
 ```
 
@@ -362,11 +441,14 @@ Smart Glasses/
 |-- Smart_GlassesApp.swift              # App entry point
 |-- WearablesConfig.swift               # Meta SDK configuration
 |-- WearablesManager.swift              # Glasses connection manager
+|-- PhoneCameraManager.swift            # Phone camera fallback
+|-- AppIntents.swift                    # Siri Shortcuts
 |-- Smart-Glasses-Info.plist            # App configuration
 |
 |-- Models/
 |   |-- SummaryCard.swift               # Card data model
-|   +-- SummaryDeck.swift               # Deck data model
+|   |-- SummaryDeck.swift               # Deck data model
+|   +-- QuizQuestion.swift              # Quiz data structures
 |
 |-- Views/
 |   |-- MainTabView.swift               # Tab navigation
@@ -375,21 +457,29 @@ Smart Glasses/
 |   |
 |   |-- DeckLibrary/
 |   |   |-- DeckLibraryView.swift       # Library grid
-|   |   |-- DeckDetailView.swift        # Card carousel
-|   |   +-- LibraryScannerView.swift    # Scanner interface
+|   |   |-- DeckDetailView.swift        # Card carousel + deck summary
+|   |   |-- LibraryScannerView.swift    # Scanner interface
+|   |   +-- PhoneCameraPreviewLayer.swift # Phone camera preview
 |   |
 |   +-- DocumentScanner/
-|       +-- CardPreviewSheet.swift      # Save card sheet
+|       |-- CardPreviewSheet.swift      # Save card sheet
+|       |-- QuizView.swift             # Quiz interface
+|       +-- QuizResultsView.swift      # Quiz results
 |
 |-- DocumentReader/
 |   |-- DocumentReaderProcessor.swift   # OCR engine
 |   +-- DocumentReadingResult.swift     # Result models
 |
 |-- Services/
-|   +-- StreamingSummarizer.swift       # AI summarization
+|   |-- StreamingSummarizer.swift       # AI summarization (Apple + OpenAI)
+|   |-- PDFGenerator.swift              # PDF export
+|   |-- OpenAIProvider.swift            # OpenAI API integration
+|   |-- LLMProvider.swift               # AI provider protocol
+|   |-- QuizGenerator.swift             # Quiz question generation
+|   +-- KeychainHelper.swift            # Secure key storage
 |
 |-- Audio/
-|   +-- VoiceFeedbackManager.swift      # TTS & feedback
+|   +-- VoiceFeedbackManager.swift      # TTS, haptics, audio routing
 |
 +-- Assets.xcassets/                    # App resources
 ```
@@ -401,12 +491,13 @@ Smart Glasses/
 ### Distance Mode Settings
 | Parameter | Distance Mode | Close-up Mode |
 |-----------|---------------|---------------|
-| `maxProcessingDimension` | 3500px | 2000px |
-| `sharpeningIntensity` | 0.5 | 0.0 |
-| `contrastMultiplier` | 1.15 | 1.0 |
-| `textConfidenceThreshold` | 0.2 | 0.3 |
-| `minimumTextLines` | 2 | 3 |
-| `minimumCharacters` | 30 | 50 |
+| `targetProcessingDimension` | 3500px | 2000px |
+| `convertToGrayscale` | Yes | No |
+| `useAdaptiveThreshold` | Yes | No |
+| `textConfidenceThreshold` | 0.2 | 0.4 |
+| `documentConfidenceThreshold` | 0.35 | 0.5 |
+| `minimumTextLines` | 1 | 3 |
+| `minimumCharacters` | 15 | 50 |
 
 ### Auto-Capture Settings
 | Parameter | Value | Description |
@@ -425,13 +516,13 @@ The app requires the following permissions configured in `Info.plist`:
 | Permission | Usage |
 |------------|-------|
 | Bluetooth | Connect to Meta smart glasses |
-| Camera | Document detection and scanning |
+| Camera | Phone camera fallback and document scanning |
 | Microphone | Voice commands (optional) |
 | Photo Library | Save captured images |
 | Siri | Voice shortcuts integration |
 
 ### Background Modes
-- `audio` - Bluetooth A2DP audio
+- `audio` - Bluetooth A2DP audio playback
 - `bluetooth-peripheral` - Wearable connection
 - `external-accessory` - Meta glasses communication
 
@@ -443,23 +534,25 @@ The app requires the following permissions configured in `Info.plist`:
 1. Ensure glasses are powered on and in range
 2. Check Bluetooth is enabled on iPhone
 3. Try "Disconnect Glasses" then "Connect Glasses"
-4. Restart the Meta View app if installed
+4. Restart the Meta AI app if installed
 
 ### Poor OCR Results
 1. Enable Distance Mode in Settings
 2. Ensure adequate lighting
-3. Hold document steady until green indicator
+3. Hold document steady until green indicator appears
 4. Try moving slightly closer to the document
+5. Try using the phone camera if glasses produce low-quality frames
 
 ### AI Summarization Not Working
-- Foundation Models require iOS 26+ and Apple Intelligence enabled
-- Check Settings > Apple Intelligence & Siri > Apple Intelligence
-- The app falls back to basic summarization on unsupported devices
+- **Apple Intelligence**: Requires iOS 26+ and Apple Intelligence enabled in Settings > Apple Intelligence & Siri
+- **OpenAI**: Requires valid API key entered in Settings
+- The app falls back to basic text extraction on unsupported configurations
 
 ### No Audio Through Glasses
 1. Verify glasses are connected via Bluetooth A2DP
 2. Check iPhone audio output is set to glasses
 3. Ensure "Speak Summaries" is enabled in Settings
+4. Audio automatically routes to phone speakers when glasses disconnect
 
 ---
 
@@ -484,16 +577,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Meta Wearables SDK team for glasses integration
 - Apple Vision framework for OCR capabilities
 - Apple Foundation Models for on-device AI
+- OpenAI for cloud AI and TTS APIs
 - SwiftUI and SwiftData teams for modern iOS development tools
-
----
-
-## Version History
-
-- **1.0.0** - Initial release
-  - Document scanning with Meta smart glasses
-  - AI-powered summarization with Foundation Models
-  - Study deck organization with SwiftData
-  - Multi-page scanning support
-  - Distance mode for optimal OCR
-  - Audio feedback through glasses speakers
