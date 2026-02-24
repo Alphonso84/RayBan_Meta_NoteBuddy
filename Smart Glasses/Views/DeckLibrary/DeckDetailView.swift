@@ -201,11 +201,11 @@ struct DeckDetailView: View {
     private var providerAlertMessage: String {
         switch pendingAction {
         case .quiz:
-            return "Quiz generation works best with OpenAI. On-device AI may produce lower quality questions."
+            return "Quiz generation requires large structured output that the on-device model may struggle with. Switching to the OpenAI cloud model is recommended for better results."
         case .flashcards:
-            return "Flashcard generation works best with OpenAI. On-device AI may produce lower quality results."
+            return "Flashcard generation involves large structured output that the on-device model may struggle with. Switching to the OpenAI cloud model is recommended for better results."
         case .deckSummary:
-            return "Deck summaries work best with OpenAI, especially for decks with many cards."
+            return "Deck summaries combine content across multiple cards, which can exceed what the on-device model handles well. Switching to the OpenAI cloud model is recommended for better results."
         case nil:
             return ""
         }

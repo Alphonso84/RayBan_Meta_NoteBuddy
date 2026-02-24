@@ -83,7 +83,7 @@ struct PDFImportView: View {
                 startImport()
             }
         } message: {
-            Text("PDF import summarizes each page individually and works best with OpenAI. On-device AI may produce lower quality summaries.")
+            Text("PDF import processes multiple pages sequentially, which can exceed what the on-device model handles well. Switching to the OpenAI cloud model is recommended for better results.")
         }
         .onAppear {
             loadPDF()
