@@ -1,9 +1,19 @@
 # Ray-Ban Meta - NoteBuddy
 
 <p align="center">
-  <img src="Smart%20Glasses/IMG_4942.PNG" width="320" />
+  <img src="Smart%20Glasses/IMG_4942.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_4943.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_5347.PNG" width="250" />
+</p>
 
-  <img src="Smart%20Glasses/IMG_4943.PNG" width="320" />
+<p align="center">
+  <img src="Smart%20Glasses/IMG_5396.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_5397.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_5398.PNG" width="250" />
+</p>
+
+<p align="center">
+  <em>Left to right: Document scanning, Library view, Quiz results, Flashcard front, 3D flip animation, Flashcard back</em>
 </p>
 
 A powerful iOS application that pairs with Ray-Ban Meta smart glasses (via [Meta Wearables SDK](https://github.com/facebook/meta-wearables-dat-ios)) to transform physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses — or use your phone's camera as a fallback — extract text with OCR, generate intelligent summaries, and organize content into study decks with quiz mode.
@@ -41,6 +51,13 @@ Supports dual AI providers: [Apple Foundation Models](https://developer.apple.co
 - **Swipe Navigation**: Swipe left/right through flashcards like physical cards
 - **Print Support**: Export flashcards as PDF with 4 cards per page, formatted for double-sided printing
 - **Study Tracking**: Track cards studied, flip count, and session duration
+
+### PDF Import
+- **Import PDFs as Study Cards**: Select any PDF file and automatically create one summarized card per page
+- **Two Entry Points**: Import from the Library toolbar (creates a new deck) or from a deck's menu (adds cards to that deck)
+- **Progress Tracking**: Real-time progress view showing streaming AI summaries as each page is processed
+- **Page Thumbnails**: Each card includes a rendered thumbnail of the original PDF page
+- **Smart Filtering**: Automatically skips blank or image-only pages (< 30 characters of text)
 
 ### Study Organization
 - **Deck Management**: Organize cards into color-coded study decks (10 preset colors)
@@ -204,6 +221,16 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 6. Tap **menu** → **"Print Flashcards"** to export as PDF for printing
 7. Tap **"Finish Study"** to see your session stats
 
+### PDF Import
+
+1. **From Library**: Tap the **"+"** button in the Library toolbar → **"Import PDF"**
+2. **From a Deck**: Open a deck → tap the **menu (⋯)** → **"Import PDF"**
+3. Select a PDF file from the file picker
+4. Review the page count and tap **"Start Import"**
+5. Watch as each page is summarized with streaming AI output
+6. Cards are created automatically — one per page with title, summary, key points, and thumbnail
+7. A new deck is created from the filename (Library import) or cards are added to the existing deck
+
 ### PDF Export
 
 1. Open a card in deck detail view
@@ -215,10 +242,11 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 
 1. **View Library** - Tap the Library tab (books icon)
 2. **Browse Decks** - Scroll through your deck grid with stats
-3. **Create Deck** - Tap "+" to create a new deck with title, description, and color
-4. **Open Deck** - Tap a deck to view its cards in a carousel
-5. **Generate Deck Summary** - Tap the summary option to aggregate insights across all cards
-6. **Listen** - Tap play to hear card content or deck summaries via TTS
+3. **Create Deck** - Tap **"+"** → **"New Deck"** with title, description, and color
+4. **Import PDF** - Tap **"+"** → **"Import PDF"** to create a deck from a PDF file
+5. **Open Deck** - Tap a deck to view its cards in a carousel
+6. **Generate Deck Summary** - Tap the summary option to aggregate insights across all cards
+7. **Listen** - Tap play to hear card content or deck summaries via TTS
 
 ---
 
@@ -325,6 +353,7 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 | `FlashcardView.swift` | Flashcard study interface with swipe navigation |
 | `FlashcardCardView.swift` | Individual flashcard with 3D flip animation |
 | `FlashcardStudyResultsView.swift` | Study session stats and completion screen |
+| `PDFImportView.swift` | PDF import progress sheet with streaming summaries |
 | `PhoneCameraPreviewLayer.swift` | UIViewRepresentable for phone camera preview |
 
 #### Services
@@ -339,6 +368,7 @@ If you don't have glasses, you can use the **Phone Camera** fallback on the Scan
 | `QuizGenerator.swift` | Quiz question generation from deck cards |
 | `FlashcardGenerator.swift` | AI-powered flashcard generation from deck cards |
 | `PDFGenerator.swift` | Formatted PDF export for cards and flashcards |
+| `PDFImporter.swift` | PDF text extraction and page thumbnail rendering |
 | `VoiceFeedbackManager.swift` | TTS (Apple + OpenAI), haptics, audio routing (singleton) |
 | `KeychainHelper.swift` | Secure API key storage |
 
@@ -482,6 +512,7 @@ Smart Glasses/
 |   |   |-- DeckLibraryView.swift       # Library grid
 |   |   |-- DeckDetailView.swift        # Card carousel + deck summary
 |   |   |-- LibraryScannerView.swift    # Scanner interface
+|   |   |-- PDFImportView.swift         # PDF import progress sheet
 |   |   +-- PhoneCameraPreviewLayer.swift # Phone camera preview
 |   |
 |   |-- DocumentScanner/
@@ -503,6 +534,7 @@ Smart Glasses/
 |-- Services/
 |   |-- StreamingSummarizer.swift       # AI summarization (Apple + OpenAI)
 |   |-- PDFGenerator.swift              # PDF export (cards + flashcards)
+|   |-- PDFImporter.swift              # PDF text extraction + thumbnails
 |   |-- OpenAIProvider.swift            # OpenAI API integration
 |   |-- LLMProvider.swift               # AI provider protocol
 |   |-- QuizGenerator.swift             # Quiz question generation
