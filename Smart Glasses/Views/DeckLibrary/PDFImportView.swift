@@ -19,6 +19,11 @@ struct PDFImportView: View {
 
     @StateObject private var summarizer = StreamingSummarizer()
 
+    // Provider recommendation alert
+    @AppStorage("selectedProvider") private var selectedProvider: String = "apple"
+    @AppStorage("hideOpenAIRecommendation") private var hideRecommendation = false
+    @State private var showingProviderAlert = false
+
     @State private var importState: ImportState = .ready
     @State private var pages: [PDFImporter.PDFPage] = []
     @State private var pdfDocument: PDFDocument?
@@ -67,6 +72,19 @@ struct PDFImportView: View {
             }
         }
         .presentationDetents([.large])
+        .alert("OpenAI Recommended", isPresented: $showingProviderAlert) {
+            Button("Continue Anyway") { startImport() }
+            Button("Switch to OpenAI") {
+                selectedProvider = "openai"
+                startImport()
+            }
+            Button("Don't Show Again", role: .cancel) {
+                hideRecommendation = true
+                startImport()
+            }
+        } message: {
+            Text("PDF import summarizes each page individually and works best with OpenAI. On-device AI may produce lower quality summaries.")
+        }
         .onAppear {
             loadPDF()
         }
@@ -104,7 +122,11 @@ struct PDFImportView: View {
             }
 
             Button {
-                startImport()
+                if selectedProvider == "apple" && !hideRecommendation {
+                    showingProviderAlert = true
+                } else {
+                    startImport()
+                }
             } label: {
                 Label("Start Import", systemImage: "square.and.arrow.down")
                     .font(.headline)

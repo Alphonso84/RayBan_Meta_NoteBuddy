@@ -25,6 +25,16 @@ struct DeckDetailView: View {
     @State private var showingPDFImportView = false
     @State private var pdfData: Data?
 
+    // Provider recommendation alert
+    @AppStorage("selectedProvider") private var selectedProvider: String = "apple"
+    @AppStorage("hideOpenAIRecommendation") private var hideRecommendation = false
+    @State private var showingProviderAlert = false
+    @State private var pendingAction: PendingAIAction?
+
+    enum PendingAIAction {
+        case quiz, flashcards, deckSummary
+    }
+
     @StateObject private var summarizer = StreamingSummarizer()
     @ObservedObject private var voiceFeedback = VoiceFeedbackManager.shared
     private var sortedCards: [SummaryCard] { deck.sortedCards }
@@ -66,7 +76,12 @@ struct DeckDetailView: View {
 
                     if sortedCards.count >= 2 {
                         Button {
-                            showingDeckSummary = true
+                            if selectedProvider == "apple" && !hideRecommendation {
+                                pendingAction = .deckSummary
+                                showingProviderAlert = true
+                            } else {
+                                showingDeckSummary = true
+                            }
                         } label: {
                             if deck.hasDeckSummary {
                                 Label(deck.isSummaryOutdated ? "View Deck Summary (Outdated)" : "View Deck Summary", systemImage: "doc.text.magnifyingglass")
@@ -85,13 +100,23 @@ struct DeckDetailView: View {
 
                         if sortedCards.count >= 2 {
                             Button {
-                                showingQuiz = true
+                                if selectedProvider == "apple" && !hideRecommendation {
+                                    pendingAction = .quiz
+                                    showingProviderAlert = true
+                                } else {
+                                    showingQuiz = true
+                                }
                             } label: {
                                 Label("Start Quiz", systemImage: "questionmark.circle")
                             }
 
                             Button {
-                                showingFlashcards = true
+                                if selectedProvider == "apple" && !hideRecommendation {
+                                    pendingAction = .flashcards
+                                    showingProviderAlert = true
+                                } else {
+                                    showingFlashcards = true
+                                }
                             } label: {
                                 Label("Study Flashcards", systemImage: "rectangle.on.rectangle.angled")
                             }
@@ -150,12 +175,50 @@ struct DeckDetailView: View {
                 PDFImportView(pdfURL: url, targetDeck: deck)
             }
         }
+        .alert("OpenAI Recommended", isPresented: $showingProviderAlert) {
+            Button("Continue Anyway") { executePendingAction() }
+            Button("Switch to OpenAI") {
+                selectedProvider = "openai"
+                executePendingAction()
+            }
+            Button("Don't Show Again", role: .cancel) {
+                hideRecommendation = true
+                executePendingAction()
+            }
+        } message: {
+            Text(providerAlertMessage)
+        }
         .onAppear {
             deck.markAccessed()
         }
         .onDisappear {
             voiceFeedback.stopSpeaking()
         }
+    }
+
+    // MARK: - Provider Alert Helpers
+
+    private var providerAlertMessage: String {
+        switch pendingAction {
+        case .quiz:
+            return "Quiz generation works best with OpenAI. On-device AI may produce lower quality questions."
+        case .flashcards:
+            return "Flashcard generation works best with OpenAI. On-device AI may produce lower quality results."
+        case .deckSummary:
+            return "Deck summaries work best with OpenAI, especially for decks with many cards."
+        case nil:
+            return ""
+        }
+    }
+
+    private func executePendingAction() {
+        switch pendingAction {
+        case .quiz: showingQuiz = true
+        case .flashcards: showingFlashcards = true
+        case .deckSummary: showingDeckSummary = true
+        case nil: break
+        }
+        pendingAction = nil
     }
 
     // MARK: - Empty State
