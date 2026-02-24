@@ -8,8 +8,9 @@
 import MWDATCamera
 import SwiftUI
 import SwiftData
+import AVFoundation
 
-/// Standalone scanner view using Smart Glasses camera
+/// Standalone scanner view using Smart Glasses camera or phone camera fallback
 struct LibraryScannerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -17,6 +18,7 @@ struct LibraryScannerView: View {
     @ObservedObject private var manager = WearablesManager.shared
     @StateObject private var processor = DocumentReaderProcessor()
     @StateObject private var summarizer = StreamingSummarizer()
+    @StateObject private var phoneCamera = PhoneCameraManager()
 
     // User settings (persisted)
     @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
@@ -29,15 +31,23 @@ struct LibraryScannerView: View {
     @State private var isAutoCaptureOn = true  // Auto-capture enabled by default
     @State private var frameSize: CGSize = .zero
     @State private var showPageCapturedOptions = false  // Show options after page capture
+    @State private var usingPhoneCamera = false
+
+    /// Whether any camera source is actively providing frames
+    private var isActivelyScanning: Bool {
+        if manager.isGlassesConnected { return true }
+        if usingPhoneCamera && phoneCamera.isRunning { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // Glasses camera preview or connection status
-                glassesPreview
+                // Camera preview (glasses or phone) or connection status
+                cameraPreview
 
                 // Document boundary overlay (only show during auto-capture scanning)
-                if manager.streamState == .streaming && isAutoCaptureOn && summarizer.state == .idle {
+                if isActivelyScanning && isAutoCaptureOn && summarizer.state == .idle {
                     DocumentBoundaryOverlay(
                         boundary: processor.detectedBoundary,
                         stabilityProgress: processor.stabilityProgress,
@@ -101,6 +111,22 @@ struct LibraryScannerView: View {
                         }
 
                         Spacer()
+
+                        // Source indicator
+                        if isActivelyScanning {
+                            HStack(spacing: 4) {
+                                Image(systemName: usingPhoneCamera ? "camera.fill" : "eyeglasses")
+                                    .font(.system(size: 14))
+                                Text(usingPhoneCamera ? "Phone" : "Glasses")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                        }
 
                         // Page counter badge (when pages captured in multi-page mode)
                         if isMultiPageMode && processor.capturedPageCount > 0 {
@@ -197,6 +223,8 @@ struct LibraryScannerView: View {
             }
             .onDisappear {
                 stopGlassesStream()
+                phoneCamera.stopSession()
+                usingPhoneCamera = false
                 processor.stopAutoCapture()
             }
             .onChange(of: processor.latestResult) { _, newResult in
@@ -219,8 +247,22 @@ struct LibraryScannerView: View {
             .onChange(of: manager.latestFrameImage) { _, newImage in
                 // Feed frames to auto-capture processor for boundary detection
                 // (uses low-res video for detection, but captures high-res photo when stable)
-                if let image = newImage, isAutoCaptureOn, summarizer.state == .idle {
+                if !usingPhoneCamera, let image = newImage, isAutoCaptureOn, summarizer.state == .idle {
                     processor.processFrameForAutoCapture(image)
+                }
+            }
+            .onChange(of: phoneCamera.latestFrameImage) { _, newImage in
+                // Feed phone camera frames to auto-capture processor
+                if usingPhoneCamera, let image = newImage, isAutoCaptureOn, summarizer.state == .idle {
+                    processor.processFrameForAutoCapture(image)
+                }
+            }
+            .onChange(of: manager.isGlassesConnected) { _, connected in
+                // Auto-switch to glasses when they connect
+                if connected && usingPhoneCamera {
+                    phoneCamera.stopSession()
+                    usingPhoneCamera = false
+                    VoiceFeedbackManager.shared.configureAudioRoute(forGlasses: true)
                 }
             }
             .onChange(of: processor.shouldTriggerPhotoCapture) { _, shouldCapture in
@@ -236,7 +278,7 @@ struct LibraryScannerView: View {
     private func triggerHighResPhotoCapture() {
         print("[LibraryScannerView] Triggering high-res photo capture for OCR")
 
-        manager.capturePhoto { [weak processor] image in
+        let captureHandler: (UIImage?) -> Void = { [weak processor] image in
             guard let processor = processor else { return }
 
             // Reset the trigger flag
@@ -244,7 +286,6 @@ struct LibraryScannerView: View {
 
             if let image = image {
                 print("[LibraryScannerView] Got high-res photo: \(image.size.width)x\(image.size.height)")
-                // Process the high-resolution photo
                 processor.captureAndProcess(image)
                 processor.autoCaptureDidComplete()
             } else {
@@ -253,11 +294,17 @@ struct LibraryScannerView: View {
                 processor.autoCaptureDidComplete()
             }
         }
+
+        if usingPhoneCamera {
+            phoneCamera.capturePhoto(completion: captureHandler)
+        } else {
+            manager.capturePhoto(completion: captureHandler)
+        }
     }
 
-    // MARK: - Glasses Preview
+    // MARK: - Camera Preview
 
-    private var glassesPreview: some View {
+    private var cameraPreview: some View {
         GeometryReader { geometry in
             if manager.streamState == .streaming, let image = manager.latestFrameImage {
                 // Live feed from Smart Glasses
@@ -272,18 +319,29 @@ struct LibraryScannerView: View {
                     .onChange(of: geometry.size) { _, newSize in
                         frameSize = newSize
                     }
+            } else if usingPhoneCamera && phoneCamera.isRunning {
+                // Live feed from phone camera
+                PhoneCameraPreviewLayer(session: phoneCamera.captureSession)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .onAppear {
+                        frameSize = geometry.size
+                    }
+                    .onChange(of: geometry.size) { _, newSize in
+                        frameSize = newSize
+                    }
             } else {
                 // Not connected or no stream
                 Color.black
                     .overlay {
-                        glassesConnectionStatus
+                        connectionStatus
                     }
             }
         }
         .ignoresSafeArea()
     }
 
-    private var glassesConnectionStatus: some View {
+    private var connectionStatus: some View {
         VStack(spacing: 20) {
             // Glasses icon
             Image(systemName: "eyeglasses")
@@ -336,6 +394,41 @@ struct LibraryScannerView: View {
                     Text("Waiting for video...")
                         .font(.caption)
                         .foregroundStyle(.gray)
+                }
+            }
+
+            // Divider between glasses and phone camera options
+            if manager.streamState != .streaming {
+                HStack {
+                    Rectangle()
+                        .fill(.gray.opacity(0.3))
+                        .frame(height: 1)
+                    Text("or")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                    Rectangle()
+                        .fill(.gray.opacity(0.3))
+                        .frame(height: 1)
+                }
+                .padding(.horizontal, 40)
+
+                // Phone camera fallback button
+                Button {
+                    usingPhoneCamera = true
+                    phoneCamera.startSession()
+                    VoiceFeedbackManager.shared.configureAudioRoute(forGlasses: false)
+                } label: {
+                    Label("Use Phone Camera", systemImage: "camera.fill")
+                        .font(.headline)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        )
                 }
             }
 
@@ -470,9 +563,9 @@ struct LibraryScannerView: View {
     }
 
     private var statusText: String {
-        // If glasses not connected, show that status
-        if manager.streamState != .streaming {
-            return "Glasses Not Streaming"
+        // If no camera source is active, show that status
+        if !isActivelyScanning {
+            return "No Camera Active"
         }
 
         switch summarizer.state {
@@ -507,9 +600,9 @@ struct LibraryScannerView: View {
     }
 
     private var statusSubtitle: String {
-        // If glasses not connected, show that status
-        if manager.streamState != .streaming {
-            return "Connect glasses to start scanning"
+        // If no camera source is active, show that status
+        if !isActivelyScanning {
+            return "Connect glasses or use phone camera to scan"
         }
 
         switch summarizer.state {
@@ -825,10 +918,11 @@ struct LibraryScannerView: View {
     }
 
     private var canCapture: Bool {
-        manager.streamState == .streaming &&
-        manager.latestFrameImage != nil &&
-        (processor.state == .idle || processor.state == .scanning || processor.state == .complete) &&
-        !showPageCapturedOptions
+        let hasSource = (manager.streamState == .streaming && manager.latestFrameImage != nil) ||
+                        (usingPhoneCamera && phoneCamera.isRunning)
+        return hasSource &&
+            (processor.state == .idle || processor.state == .scanning || processor.state == .complete) &&
+            !showPageCapturedOptions
     }
 
     // MARK: - Configuration
@@ -877,8 +971,15 @@ struct LibraryScannerView: View {
     /// Capture a high-resolution photo and process for OCR
     /// Uses the photo capture API for 12MP images instead of 720p video frames
     private func captureDocument() {
-        // Use high-resolution photo capture instead of video frame
-        manager.captureDocumentPhoto()
+        if usingPhoneCamera {
+            phoneCamera.capturePhoto { image in
+                if let image = image {
+                    processor.captureAndProcess(image)
+                }
+            }
+        } else {
+            manager.captureDocumentPhoto()
+        }
     }
 
     private func startSummarization(for result: DocumentReadingResult) {

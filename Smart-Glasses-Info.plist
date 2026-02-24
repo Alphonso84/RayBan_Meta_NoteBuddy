@@ -33,6 +33,8 @@
 	<string>Needed to connect to Meta Wearables</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Needed to talk with the AI Assistant</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Need access to the camera to detect and scan documents and other objects</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save photos captured from your smart glasses to your photo library</string>
 	<key>MWDAT</key>

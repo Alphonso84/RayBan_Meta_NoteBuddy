@@ -31,6 +31,9 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
     /// Current audio output route (for debugging)
     @Published var audioOutputRoute: String = "Unknown"
 
+    /// Whether audio is currently routed to glasses (Bluetooth)
+    @Published var isRoutedToGlasses: Bool = false
+
     // MARK: - Private Properties
 
     /// Speech synthesizer
@@ -103,6 +106,15 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
     @objc private func handleRouteChange(_ notification: Notification) {
         Task { @MainActor in
             updateAudioRoute()
+
+            // If Bluetooth disconnected mid-session, reroute to phone speaker
+            if let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
+                .flatMap(AVAudioSession.RouteChangeReason.init),
+               reason == .oldDeviceUnavailable {
+                if !isBluetoothConnected {
+                    configureAudioRoute(forGlasses: false)
+                }
+            }
         }
     }
 
@@ -114,10 +126,40 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
             $0.portType == .bluetoothA2DP || $0.portType == .bluetoothHFP
         }) {
             audioOutputRoute = "Bluetooth: \(bluetoothOutput.portName)"
+            isRoutedToGlasses = true
         } else if let output = outputs.first {
             audioOutputRoute = output.portName
+            isRoutedToGlasses = false
         } else {
             audioOutputRoute = "No output"
+            isRoutedToGlasses = false
+        }
+    }
+
+    /// Configure audio routing based on whether glasses are connected
+    /// - Parameter forGlasses: true to route to glasses via Bluetooth, false for phone speaker
+    func configureAudioRoute(forGlasses: Bool) {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if forGlasses {
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    options: [.allowBluetooth, .allowBluetoothA2DP]
+                )
+            } else {
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    options: [.defaultToSpeaker]
+                )
+                try session.overrideOutputAudioPort(.speaker)
+            }
+            try session.setActive(true)
+            updateAudioRoute()
+            print("[VoiceFeedback] Audio routed to \(forGlasses ? "glasses (Bluetooth)" : "phone speaker")")
+        } catch {
+            print("[VoiceFeedback] Failed to configure audio route: \(error.localizedDescription)")
         }
     }
 
