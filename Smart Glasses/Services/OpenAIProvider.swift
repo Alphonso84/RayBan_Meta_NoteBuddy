@@ -317,6 +317,50 @@ class OpenAIProvider: LLMProvider {
         return fullContent
     }
 
+    // MARK: - Text-to-Speech
+
+    /// Synthesize speech from text using OpenAI's TTS API
+    /// - Parameters:
+    ///   - text: The text to convert to speech
+    ///   - voice: The voice to use (e.g., "nova", "alloy", "echo")
+    /// - Returns: MP3 audio data
+    func synthesizeSpeech(text: String, voice: String) async throws -> Data {
+        guard let apiKey = KeychainHelper.loadString(key: "openai_api_key") else {
+            throw OpenAIError.noAPIKey
+        }
+
+        struct TTSRequest: Encodable {
+            let model: String
+            let voice: String
+            let input: String
+        }
+
+        let ttsRequest = TTSRequest(model: "tts-1", voice: voice, input: text)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/audio/speech")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(ttsRequest)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OpenAIError.apiError("Invalid response")
+        }
+
+        if httpResponse.statusCode == 401 {
+            throw OpenAIError.invalidAPIKey
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw OpenAIError.apiError("TTS HTTP \(httpResponse.statusCode): \(errorBody)")
+        }
+
+        return data
+    }
+
     // MARK: - Response Parsing
 
     private func parseDocumentResponse(_ content: String, originalText: String) -> DocumentSummaryOutput {

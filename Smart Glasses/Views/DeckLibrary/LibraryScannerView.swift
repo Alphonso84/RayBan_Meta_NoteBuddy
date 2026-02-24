@@ -21,6 +21,7 @@ struct LibraryScannerView: View {
     // User settings (persisted)
     @AppStorage("distanceModeEnabled") private var distanceModeEnabled = true
     @AppStorage("multiPageModeEnabled") private var isMultiPageMode = false  // Single-page (auto-summarize) by default
+    @AppStorage("speakSummaries") private var speakSummaries = false
 
     @State private var showingDeckSelector = false
     @State private var pendingCard: SummaryCard?
@@ -882,7 +883,10 @@ struct LibraryScannerView: View {
 
     private func startSummarization(for result: DocumentReadingResult) {
         Task {
-            _ = await summarizer.summarize(result.extractedText)
+            let output = await summarizer.summarize(result.extractedText)
+            if speakSummaries, let output = output {
+                VoiceFeedbackManager.shared.speakSummary(output.summary)
+            }
         }
     }
 
@@ -912,7 +916,10 @@ struct LibraryScannerView: View {
 
         // Summarize all pages together
         Task {
-            _ = await summarizer.summarize(combinedText)
+            let output = await summarizer.summarize(combinedText)
+            if speakSummaries, let output = output {
+                VoiceFeedbackManager.shared.speakSummary(output.summary)
+            }
         }
     }
 

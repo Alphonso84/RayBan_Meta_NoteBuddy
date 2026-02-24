@@ -223,13 +223,13 @@ struct DeckDetailView: View {
 
     private func speakCurrentCard() {
         guard let card = currentCard else { return }
-        voiceFeedback.speak(card.textForSpeech)
+        voiceFeedback.speakSummary(card.textForSpeech)
     }
 
     private func speakAllCards() {
         // Speak all cards by queuing them
         for card in sortedCards {
-            voiceFeedback.speak(card.textForSpeech)
+            voiceFeedback.speakSummary(card.textForSpeech)
         }
     }
 
@@ -761,7 +761,7 @@ struct DeckSummarySheet: View {
             if let keyPoints = deck.deckKeyPoints, !keyPoints.isEmpty {
                 textToSpeak += ". Key themes: " + keyPoints.joined(separator: ". ")
             }
-            voiceFeedback.speak(textToSpeak)
+            voiceFeedback.speakSummary(textToSpeak)
         }
     }
 }

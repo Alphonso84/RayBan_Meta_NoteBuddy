@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage("multiPageModeEnabled") private var multiPageModeEnabled = false
     @AppStorage("selectedProvider") private var selectedProvider = "apple"
     @AppStorage("openAIModel") private var openAIModel = "gpt-4o-mini"
+    @AppStorage("openAIVoice") private var openAIVoice = "nova"
 
     @State private var apiKeyInput = ""
     @State private var apiKeySaved = false
@@ -195,6 +196,20 @@ struct SettingsView: View {
                                 }
                             }
                             .disabled(isFetchingModels)
+                        }
+
+                        // Voice Picker
+                        Picker("Voice", selection: $openAIVoice) {
+                            Text("Alloy").tag("alloy")
+                            Text("Ash").tag("ash")
+                            Text("Ballad").tag("ballad")
+                            Text("Coral").tag("coral")
+                            Text("Echo").tag("echo")
+                            Text("Fable").tag("fable")
+                            Text("Nova").tag("nova")
+                            Text("Onyx").tag("onyx")
+                            Text("Sage").tag("sage")
+                            Text("Shimmer").tag("shimmer")
                         }
 
                         // Test Connection

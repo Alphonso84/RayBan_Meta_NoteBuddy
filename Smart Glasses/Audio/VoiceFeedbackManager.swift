@@ -10,6 +10,7 @@ import AVFoundation
 import AudioToolbox
 import UIKit
 import Combine
+import SwiftUI
 
 /// Manages text-to-speech voice feedback through the glasses speakers via Bluetooth A2DP
 @MainActor
@@ -35,8 +36,16 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
     /// Speech synthesizer
     private let synthesizer = AVSpeechSynthesizer()
 
+    /// Audio player for OpenAI TTS playback
+    private var audioPlayer: AVAudioPlayer?
+
     /// Queue of pending utterances
     private var utteranceQueue: [String] = []
+
+    // MARK: - User Settings
+
+    @AppStorage("selectedProvider") private var selectedProvider = "apple"
+    @AppStorage("openAIVoice") private var openAIVoice = "nova"
 
     // MARK: - Initialization
 
@@ -126,9 +135,11 @@ class VoiceFeedbackManager: NSObject, ObservableObject {
         performSpeak(text)
     }
 
-    /// Stop any current speech
+    /// Stop any current speech (Apple TTS or OpenAI audio)
     func stopSpeaking() {
         synthesizer.stopSpeaking(at: .immediate)
+        audioPlayer?.stop()
+        audioPlayer = nil
         utteranceQueue.removeAll()
         isSpeaking = false
     }
@@ -211,6 +222,66 @@ extension VoiceFeedbackManager: AVSpeechSynthesizerDelegate {
         Task { @MainActor in
             self.isSpeaking = false
             self.utteranceQueue.removeAll()
+        }
+    }
+}
+
+// MARK: - OpenAI TTS
+extension VoiceFeedbackManager {
+
+    /// Speak summary text using the best available TTS provider.
+    /// Uses OpenAI TTS when selected and API key exists, otherwise falls back to Apple TTS.
+    /// Use this for longer content like summaries and card readback — short feedback
+    /// ("Captured", "Hold steady") should still use `speak()` for instant response.
+    func speakSummary(_ text: String) {
+        if selectedProvider == "openai",
+           KeychainHelper.loadString(key: "openai_api_key") != nil {
+            speakWithOpenAI(text)
+        } else {
+            speak(text)
+        }
+    }
+
+    /// Speak text using OpenAI's TTS API
+    private func speakWithOpenAI(_ text: String) {
+        guard !isSpeaking else { return }
+        isSpeaking = true
+
+        Task {
+            do {
+                let provider = OpenAIProvider()
+                let audioData = try await provider.synthesizeSpeech(text: text, voice: openAIVoice)
+
+                let player = try AVAudioPlayer(data: audioData)
+                self.audioPlayer = player
+                player.delegate = self
+                player.play()
+
+                print("[VoiceFeedback] Playing OpenAI TTS (\(openAIVoice))")
+            } catch {
+                print("[VoiceFeedback] OpenAI TTS failed: \(error.localizedDescription), falling back to Apple TTS")
+                self.isSpeaking = false
+                self.speak(text)
+            }
+        }
+    }
+}
+
+// MARK: - AVAudioPlayerDelegate
+extension VoiceFeedbackManager: AVAudioPlayerDelegate {
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.audioPlayer = nil
+            self.isSpeaking = false
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        Task { @MainActor in
+            self.audioPlayer = nil
+            self.isSpeaking = false
+            print("[VoiceFeedback] Audio decode error: \(error?.localizedDescription ?? "unknown")")
         }
     }
 }
