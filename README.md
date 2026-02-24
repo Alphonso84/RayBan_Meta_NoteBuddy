@@ -1,28 +1,15 @@
-# Ray-Ban Meta - NoteBuddy
+<h1 align="center">Ray-Ban Meta - NoteBuddy</h1>
 
-<p align="center">
-  <img src="Smart%20Glasses/IMG_4942.PNG" width="250" />
-  <img src="Smart%20Glasses/IMG_4943.PNG" width="250" />
-  <img src="Smart%20Glasses/IMG_5347.PNG" width="250" />
-</p>
-
-<p align="center">
-  <img src="Smart%20Glasses/IMG_5396.PNG" width="250" />
-  <img src="Smart%20Glasses/IMG_5397.PNG" width="250" />
-  <img src="Smart%20Glasses/IMG_5398.PNG" width="250" />
-</p>
-
-<p align="center">
-  <em>Left to right: Document scanning, Library view, Quiz results, Flashcard front, 3D flip animation, Flashcard back</em>
-</p>
-
-A powerful iOS application that pairs with Ray-Ban Meta smart glasses (via [Meta Wearables SDK](https://github.com/facebook/meta-wearables-dat-ios)) to transform physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses — or use your phone's camera as a fallback — extract text with OCR, generate intelligent summaries, and organize content into study decks with quiz mode.
+Imagine reading a book or document and your AI assistant has the ability to summarize, save, and quiz you on what you read. Well RayBan Meta Notebuddy does just that. Notebuddy is a powerful iOS application that pairs with Ray-Ban Meta smart glasses (via [Meta Wearables SDK](https://github.com/facebook/meta-wearables-dat-ios)) to transform physical documents into AI-summarized study cards. Scan documents hands-free through your smart glasses — or use your phone's camera as a fallback — extract text with OCR, generate intelligent summaries, and organize content into study decks with quiz mode.
 
 Supports dual AI providers: [Apple Foundation Models](https://developer.apple.com/documentation/FoundationModels) for fully on-device, offline summarization, and OpenAI for cloud-powered summarization, text-to-speech, and quiz generation.
 
 ## Features
 
 ### Document Scanning
+<p align="center">
+  <img src="Smart%20Glasses/IMG_4942.PNG" width="250" />
+</p>
 - **Hands-Free Scanning**: Use Meta Ray-Ban smart glasses camera for document capture
 - **Phone Camera Fallback**: Use your iPhone's built-in camera when glasses aren't connected
 - **Auto-Capture Mode**: Automatically detects document boundaries and captures when stable
@@ -32,6 +19,9 @@ Supports dual AI providers: [Apple Foundation Models](https://developer.apple.co
 - **Perspective Correction**: Automatic skew correction for angled documents
 
 ### AI-Powered Summarization (Dual Provider)
+<p align="center">
+  <img src="Smart%20Glasses/IMG_4943.PNG" width="250" />
+</p>
 - **Apple Intelligence (On-Device)**: Uses Foundation Models for privacy-preserving, offline summarization (iOS 26+)
 - **OpenAI (Cloud)**: Supports gpt-4o-mini, gpt-4, and custom models for cloud summarization
 - **Streaming Output**: Watch summaries generate in real-time, token by token
@@ -46,6 +36,11 @@ Supports dual AI providers: [Apple Foundation Models](https://developer.apple.co
 - **Haptic Feedback**: Tactile responses for correct and incorrect answers
 
 ### Flashcard Study Mode
+<p align="center">
+  <img src="Smart%20Glasses/IMG_5396.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_5397.PNG" width="250" />
+  <img src="Smart%20Glasses/IMG_5398.PNG" width="250" />
+</p>
 - **AI-Generated Flashcards**: Create study flashcards from deck content with term/question on front and answer on back
 - **Realistic 3D Flip Animation**: Tap cards to flip with smooth spring animation
 - **Swipe Navigation**: Swipe left/right through flashcards like physical cards
