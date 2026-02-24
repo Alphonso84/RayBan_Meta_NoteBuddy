@@ -30,6 +30,9 @@ Supports dual AI providers: [Apple Foundation Models](https://developer.apple.co
 - **Deck-Level Summaries**: Aggregate summaries and key themes across all cards in a deck using map-reduce for large decks
 
 ### Quiz Mode
+<p align="center">
+  <img src="Smart%20Glasses/IMG_5347.PNG" width="250" />
+</p>
 - **Multiple-Choice Questions**: Generate 10+ questions from deck content for active recall study
 - **Dual AI Support**: Generate quizzes with OpenAI or Apple Intelligence, with fallback generation from key points
 - **Results & Review**: Score display with percentage, review missed questions with correct answers
