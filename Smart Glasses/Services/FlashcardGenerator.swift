@@ -73,6 +73,13 @@ class FlashcardGenerator: ObservableObject {
         progress = 0
     }
 
+    /// Load flashcards from cache (skips generation)
+    func loadCachedFlashcards(_ cached: [Flashcard]) {
+        flashcards = cached
+        progress = 1.0
+        state = .complete
+    }
+
     // MARK: - OpenAI
 
     private func generateWithOpenAI(text: String, cardTitles: [String], count: Int) async {

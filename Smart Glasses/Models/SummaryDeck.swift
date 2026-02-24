@@ -48,6 +48,14 @@ final class SummaryDeck {
     /// When the deck summary was last generated
     var summaryGeneratedAt: Date?
 
+    // MARK: - Flashcard Properties
+
+    /// Cached flashcards as JSON data
+    var flashcardsData: Data?
+
+    /// When flashcards were last generated
+    var flashcardsGeneratedAt: Date?
+
     init(
         id: UUID = UUID(),
         title: String,
@@ -59,7 +67,9 @@ final class SummaryDeck {
         isQuickCapture: Bool = false,
         deckSummary: String? = nil,
         deckKeyPoints: [String]? = nil,
-        summaryGeneratedAt: Date? = nil
+        summaryGeneratedAt: Date? = nil,
+        flashcardsData: Data? = nil,
+        flashcardsGeneratedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -72,6 +82,8 @@ final class SummaryDeck {
         self.deckSummary = deckSummary
         self.deckKeyPoints = deckKeyPoints
         self.summaryGeneratedAt = summaryGeneratedAt
+        self.flashcardsData = flashcardsData
+        self.flashcardsGeneratedAt = flashcardsGeneratedAt
     }
 }
 
@@ -155,6 +167,43 @@ extension SummaryDeck {
         deckSummary = nil
         deckKeyPoints = nil
         summaryGeneratedAt = nil
+    }
+
+    // MARK: - Flashcard Helpers
+
+    /// Whether the deck has cached flashcards
+    var hasFlashcards: Bool {
+        flashcardsData != nil && !(flashcardsData?.isEmpty ?? true)
+    }
+
+    /// Whether flashcards are outdated (cards added after generation)
+    var areFlashcardsOutdated: Bool {
+        guard let generatedAt = flashcardsGeneratedAt else { return true }
+        return cards.contains { $0.createdAt > generatedAt }
+    }
+
+    /// Number of cards added since flashcards were generated
+    var cardsAddedSinceFlashcards: Int {
+        guard let generatedAt = flashcardsGeneratedAt else { return cards.count }
+        return cards.filter { $0.createdAt > generatedAt }.count
+    }
+
+    /// Get cached flashcards
+    var cachedFlashcards: [Flashcard]? {
+        guard let data = flashcardsData else { return nil }
+        return try? JSONDecoder().decode([Flashcard].self, from: data)
+    }
+
+    /// Save flashcards to cache
+    func saveFlashcards(_ flashcards: [Flashcard]) {
+        flashcardsData = try? JSONEncoder().encode(flashcards)
+        flashcardsGeneratedAt = Date()
+    }
+
+    /// Clear cached flashcards
+    func clearFlashcards() {
+        flashcardsData = nil
+        flashcardsGeneratedAt = nil
     }
 }
 

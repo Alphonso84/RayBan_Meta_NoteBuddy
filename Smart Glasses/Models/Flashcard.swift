@@ -8,7 +8,7 @@
 import Foundation
 
 /// A single flashcard with front (question/term) and back (answer/explanation)
-struct Flashcard: Identifiable {
+struct Flashcard: Identifiable, Codable {
     let id: UUID
     let front: String           // Term or question
     let back: String            // Answer or explanation

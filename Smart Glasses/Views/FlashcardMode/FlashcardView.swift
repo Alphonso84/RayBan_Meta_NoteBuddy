@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct FlashcardView: View {
-    let deck: SummaryDeck
+    @Bindable var deck: SummaryDeck
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var generator = FlashcardGenerator()
     @ObservedObject private var voiceFeedback = VoiceFeedbackManager.shared
     
@@ -19,7 +21,9 @@ struct FlashcardView: View {
     @State private var studyStartedAt = Date()
     @State private var studyResult: FlashcardStudyResult? = nil
     @State private var showingPrintSheet = false
+    @State private var showingOutdatedAlert = false
     @State private var pdfData: Data?
+    @State private var loadedFromCache = false
     
     private var sortedCards: [SummaryCard] { deck.sortedCards }
     
@@ -64,6 +68,12 @@ struct FlashcardView: View {
                             }
                             
                             Button {
+                                regenerateFlashcards()
+                            } label: {
+                                Label("Regenerate Flashcards", systemImage: "arrow.clockwise")
+                            }
+                            
+                            Button {
                                 finishStudy()
                             } label: {
                                 Label("Finish Study", systemImage: "checkmark.circle")
@@ -82,6 +92,14 @@ struct FlashcardView: View {
             if let data = pdfData {
                 FlashcardShareSheet(items: [data], fileName: "\(deck.title) Flashcards.pdf")
             }
+        }
+        .alert("Flashcards Outdated", isPresented: $showingOutdatedAlert) {
+            Button("Regenerate") {
+                regenerateFlashcards()
+            }
+            Button("Use Existing", role: .cancel) {}
+        } message: {
+            Text("\(deck.cardsAddedSinceFlashcards) card(s) have been added since these flashcards were generated. Would you like to regenerate them?")
         }
     }
     
@@ -237,15 +255,45 @@ struct FlashcardView: View {
         flippedCards = []
         studyStartedAt = Date()
         
+        // Check for cached flashcards
+        if let cached = deck.cachedFlashcards, !cached.isEmpty {
+            generator.loadCachedFlashcards(cached)
+            loadedFromCache = true
+            
+            // Show alert if flashcards are outdated
+            if deck.areFlashcardsOutdated {
+                showingOutdatedAlert = true
+            }
+        } else {
+            // Generate new flashcards
+            generateNewFlashcards()
+        }
+    }
+    
+    private func generateNewFlashcards() {
+        loadedFromCache = false
         let flashcardCount = min(15, sortedCards.count * 5)
         Task {
             await generator.generateFlashcards(from: sortedCards, count: flashcardCount)
+            
+            // Save to cache after generation
+            if generator.state == .complete && !generator.flashcards.isEmpty {
+                deck.saveFlashcards(generator.flashcards)
+                try? modelContext.save()
+            }
         }
+    }
+    
+    private func regenerateFlashcards() {
+        generator.reset()
+        currentIndex = 0
+        flippedCards = []
+        generateNewFlashcards()
     }
     
     private func retryStudy() {
         generator.reset()
-        startStudy()
+        generateNewFlashcards()
     }
     
     private func finishStudy() {
