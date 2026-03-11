@@ -161,10 +161,10 @@ struct StabilityIndicator: View {
 
         DocumentBoundaryOverlay(
             boundary: DocumentBoundary(
-                topLeft: CGPoint(x: 0.1, y: 0.8),
+                topLeft: CGPoint(x: 0.1, y: 0.85),
                 topRight: CGPoint(x: 0.9, y: 0.85),
-                bottomRight: CGPoint(x: 0.85, y: 0.2),
-                bottomLeft: CGPoint(x: 0.15, y: 0.15),
+                bottomRight: CGPoint(x: 0.90, y: 0.2),
+                bottomLeft: CGPoint(x: 0.10, y: 0.2),
                 confidence: 0.95
             ),
             stabilityProgress: 0.6,
