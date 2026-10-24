@@ -12,11 +12,14 @@ import UniformTypeIdentifiers
 /// Main library view showing all decks and unsorted cards
 struct DeckLibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Query(sort: \SummaryDeck.lastAccessedAt, order: .reverse) private var decks: [SummaryDeck]
     @Query(filter: #Predicate<SummaryCard> { $0.deck == nil }, sort: \SummaryCard.createdAt, order: .reverse)
     private var unsortedCards: [SummaryCard]
 
+    @State private var selectedDeckID: UUID?
+    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
     @State private var searchText = ""
     @State private var showingNewDeckSheet = false
     @State private var selectedCard: SummaryCard?
@@ -25,81 +28,210 @@ struct DeckLibraryView: View {
     @State private var showingPDFImportView = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Stats header
-                    statsHeader
-
-                    // Quick Capture / Unsorted cards
-                    if !unsortedCards.isEmpty {
-                        quickCaptureSection
+        NavigationSplitView(preferredCompactColumn: $compactColumn) {
+            libraryContent
+                .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 520)
+        } detail: {
+            NavigationStack {
+                if let deck = decks.first(where: { $0.id == selectedDeckID }) {
+                    DeckDetailView(deck: deck)
+                        .id(deck.id)
+                } else {
+                    ContentUnavailableView {
+                        Label("Choose a deck", systemImage: "books.vertical")
+                    } description: {
+                        Text("Browse your library to review cards, listen to summaries, or start studying.")
                     }
-
-                    // Decks grid
-                    if !decks.isEmpty {
-                        decksSection
-                    }
-
-                    // Empty state
-                    if decks.isEmpty && unsortedCards.isEmpty {
-                        emptyState
-                    }
-                }
-                .padding()
-            }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Library")
-            .searchable(text: $searchText, prompt: "Search cards...")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            showingNewDeckSheet = true
-                        } label: {
-                            Label("New Deck", systemImage: "folder.badge.plus")
-                        }
-
-                        Button {
-                            showingPDFPicker = true
-                        } label: {
-                            Label("Import PDF", systemImage: "doc.badge.plus")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingNewDeckSheet) {
-                NewDeckSheet()
-            }
-            .sheet(item: $selectedCard) { card in
-                CardDetailSheet(card: card)
-            }
-            .fileImporter(
-                isPresented: $showingPDFPicker,
-                allowedContentTypes: [.pdf]
-            ) { result in
-                switch result {
-                case .success(let url):
-                    importedPDFURL = url
-                    showingPDFImportView = true
-                case .failure:
-                    break
-                }
-            }
-            .sheet(isPresented: $showingPDFImportView) {
-                if let url = importedPDFURL {
-                    PDFImportView(pdfURL: url, targetDeck: nil)
+                    .navigationTitle("Study")
                 }
             }
         }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: decks.map(\.id)) { _, ids in
+            if let selectedDeckID, !ids.contains(selectedDeckID) {
+                self.selectedDeckID = nil
+                compactColumn = .sidebar
+            }
+        }
+    }
+
+    private var libraryContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                captureActions
+
+                if searchText.isEmpty, let deck = decks.first(where: { !$0.cards.isEmpty }) {
+                    continueStudying(deck)
+                }
+
+                // Stats header
+                statsHeader
+
+                // Quick Capture / Unsorted cards
+                if !filteredUnsortedCards.isEmpty {
+                    quickCaptureSection
+                }
+
+                // Decks grid
+                if !filteredDecks.isEmpty {
+                    decksSection
+                }
+
+                if !searchText.isEmpty && filteredDecks.isEmpty && filteredUnsortedCards.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+
+                // Empty state
+                if decks.isEmpty && unsortedCards.isEmpty {
+                    emptyState
+                }
+            }
+            .padding()
+            .frame(maxWidth: 1000)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Library")
+        .searchable(text: $searchText, prompt: "Search decks and cards")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        showingNewDeckSheet = true
+                    } label: {
+                        Label("New Deck", systemImage: "folder.badge.plus")
+                    }
+
+                    Button {
+                        showingPDFPicker = true
+                    } label: {
+                        Label("Import PDF", systemImage: "doc.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add a deck or import a PDF")
+            }
+        }
+        .sheet(isPresented: $showingNewDeckSheet) {
+            NewDeckSheet()
+        }
+        .sheet(item: $selectedCard) { card in
+            CardDetailSheet(card: card)
+        }
+        .fileImporter(
+            isPresented: $showingPDFPicker,
+            allowedContentTypes: [.pdf]
+        ) { result in
+            switch result {
+            case .success(let url):
+                importedPDFURL = url
+                showingPDFImportView = true
+            case .failure:
+                break
+            }
+        }
+        .sheet(isPresented: $showingPDFImportView) {
+            if let url = importedPDFURL {
+                PDFImportView(pdfURL: url, targetDeck: nil)
+            }
+        }
+    }
+
+    private func openDeck(_ deck: SummaryDeck) {
+        selectedDeckID = deck.id
+        compactColumn = .detail
+    }
+
+    // MARK: - Study dashboard
+
+    private var captureActions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Turn a page into progress")
+                    .font(.title2.bold())
+                Text("Capture with your glasses or iPhone, then review what matters.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { captureButtons }
+                VStack(spacing: 12) { captureButtons }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 24))
+    }
+
+    @ViewBuilder
+    private var captureButtons: some View {
+        Button {
+            NavigationState.shared.selectedTab = .scan
+        } label: {
+            Label("Scan a page", systemImage: "doc.viewfinder")
+                .font(.headline)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+
+        Button {
+            showingPDFPicker = true
+        } label: {
+            Label("Import PDF", systemImage: "doc.badge.plus")
+                .font(.headline)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+    }
+
+    private func continueStudying(_ deck: SummaryDeck) -> some View {
+        Button {
+            openDeck(deck)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "book.fill")
+                    .font(.title2)
+                    .foregroundStyle(deck.color)
+                    .frame(width: 48, height: 48)
+                    .background(deck.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Continue studying")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(deck.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text("\(deck.cardCount) cards · \(deck.formattedLastAccessed)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(16)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+            .contentShape(RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Stats Header
 
     private var statsHeader: some View {
-        HStack(spacing: 16) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 16))
+        return layout {
             StatBox(
                 value: "\(decks.count)",
                 label: "Decks",
@@ -146,10 +278,12 @@ struct DeckLibraryView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(filteredUnsortedCards) { card in
-                        MiniCardView(card: card)
-                            .onTapGesture {
-                                selectedCard = card
-                            }
+                        Button {
+                            selectedCard = card
+                        } label: {
+                            MiniCardView(card: card)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -178,11 +312,18 @@ struct DeckLibraryView: View {
             Text("Your Decks")
                 .font(.headline)
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 280 : 160), spacing: 16)], spacing: 16) {
                 ForEach(filteredDecks) { deck in
-                    NavigationLink(destination: DeckDetailView(deck: deck)) {
+                    Button {
+                        openDeck(deck)
+                    } label: {
                         DeckCardView(deck: deck)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .strokeBorder(selectedDeckID == deck.id ? deck.color : .clear, lineWidth: 2)
+                            }
                     }
+                    .accessibilityAddTraits(selectedDeckID == deck.id ? .isSelected : [])
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button(role: .destructive) {
@@ -742,4 +883,16 @@ struct ShareSheet: UIViewControllerRepresentable {
 #Preview("Mini card") {
     MiniCardView(card: PreviewSamples.card)
         .modelContainer(PreviewSamples.container)
+}
+
+#Preview("Library · large text") {
+    DeckLibraryView()
+        .modelContainer(PreviewSamples.container)
+        .environment(\.dynamicTypeSize, .accessibility2)
+}
+
+#Preview("Library · expanded") {
+    DeckLibraryView()
+        .modelContainer(PreviewSamples.container)
+        .frame(width: 1000, height: 760)
 }

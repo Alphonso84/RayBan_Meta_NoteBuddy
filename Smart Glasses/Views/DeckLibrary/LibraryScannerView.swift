@@ -14,6 +14,7 @@ import AVFoundation
 struct LibraryScannerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @ObservedObject private var manager = WearablesManager.shared
     @StateObject private var processor = DocumentReaderProcessor()
@@ -49,166 +50,197 @@ struct LibraryScannerView: View {
         return false
     }
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                // Camera preview (glasses or phone) or connection status
-                cameraPreview
-
-                // Document boundary overlay (only show during auto-capture scanning)
-                if isActivelyScanning && isAutoCaptureOn && summarizer.state == .idle {
-                    DocumentBoundaryOverlay(
-                        boundary: processor.detectedBoundary,
-                        stabilityProgress: processor.stabilityProgress,
-                        isStable: processor.isDocumentStable,
-                        statusText: processor.autoCaptureStatus,
-                        frameSize: frameSize
-                    )
+    /// Keep camera, OCR and summary state in this view so opening or closing
+    /// the device only changes presentation, not the current scan session.
+    @ViewBuilder
+    private var scannerWorkspace: some View {
+        if #available(iOS 27.1, *), horizontalSizeClass == .regular {
+            ArrangementView {
+                scannerPreview
+                    .clipped()
+            } secondary: {
+                GeometryReader { geometry in
+                    ScrollView {
+                        scannerControls
+                            .frame(minHeight: geometry.size.height)
+                    }
                 }
+                .background(Color.black)
+            }
+            .arrangementViewStyle(.split)
+        } else {
+            ZStack {
+                scannerPreview
+                scannerControls
+            }
+        }
+    }
 
-                // Overlay content
-                VStack(spacing: 0) {
-                    // Capture mode picker — document / whiteboard / book barcode
-                    Picker("Mode", selection: $captureModeRaw) {
-                        ForEach(CaptureMode.allCases) { mode in
-                            Label(mode.title, systemImage: mode.symbolName).tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .onChange(of: captureModeRaw) { _, _ in
-                        // Barcode mode reads the preview itself and needs the
-                        // detail; the others capture a still and cannot afford
-                        // the bandwidth.
-                        manager.matchPreviewQuality(to: captureMode)
-                        handleCaptureModeChange()
-                    }
+    private var scannerPreview: some View {
+        ZStack {
+            // Camera preview (glasses or phone) or connection status
+            cameraPreview
 
-                    // Top bar with title and mode toggles
-                    HStack {
-                        // Auto-capture toggle
-                        Button {
-                            isAutoCaptureOn.toggle()
-                            if isAutoCaptureOn {
-                                processor.startAutoCapture()
-                            } else {
-                                processor.stopAutoCapture()
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: isAutoCaptureOn ? "a.circle.fill" : "a.circle")
-                                    .font(.system(size: 18))
-                                Text("Auto")
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(isAutoCaptureOn ? .green : .white.opacity(0.7))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                        }
+            // Document boundary overlay (only show during auto-capture scanning)
+            if isActivelyScanning && isAutoCaptureOn && summarizer.state == .idle {
+                DocumentBoundaryOverlay(
+                    boundary: processor.detectedBoundary,
+                    stabilityProgress: processor.stabilityProgress,
+                    isStable: processor.isDocumentStable,
+                    statusText: processor.autoCaptureStatus,
+                    frameSize: frameSize
+                )
+            }
+        }
+    }
 
-                        // Multi-page toggle
-                        Button {
-                            isMultiPageMode.toggle()
-                            if isMultiPageMode {
-                                processor.startMultiPageSession()
-                            } else {
-                                // If switching off multi-page, finish any current session
-                                if processor.capturedPageCount > 0 {
-                                    _ = processor.finishMultiPageSession()
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: isMultiPageMode ? "doc.on.doc.fill" : "doc.fill")
-                                    .font(.system(size: 16))
-                                Text(isMultiPageMode ? "Multi" : "Single")
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(isMultiPageMode ? .blue : .white.opacity(0.7))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                        }
-
-                        Spacer()
-
-                        // Source indicator
-                        if isActivelyScanning {
-                            HStack(spacing: 4) {
-                                Image(systemName: usingPhoneCamera ? "camera.fill" : "eyeglasses")
-                                    .font(.system(size: 14))
-                                Text(usingPhoneCamera ? "Phone" : "Glasses")
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                        }
-
-                        // Page counter badge (when pages captured in multi-page mode)
-                        if isMultiPageMode && processor.capturedPageCount > 0 {
-                            HStack(spacing: 4) {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .font(.system(size: 14))
-                                Text("\(processor.capturedPageCount)")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.blue)
-                            .clipShape(Capsule())
-                        }
-                    }
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            colors: [.black.opacity(0.6), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                    Spacer()
-
-                    // Status and content area (hide default status when auto-capture is showing overlay)
-                    VStack(spacing: 24) {
-                        // Status indicator (only show when not in auto-capture scanning mode)
-                        if !isAutoCaptureOn || summarizer.state != .idle || processor.state == .complete {
-                            statusSection
-                        }
-
-                        // Content area (streaming summary)
-                        if summarizer.state == .summarizing || summarizer.state == .complete {
-                            summaryCard
-                        }
-                    }
-                    .padding()
-
-                    Spacer()
-
-                    // Bottom controls
-                    bottomControls
-                        .padding()
-                        .background(
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.8)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+    private var scannerControls: some View {
+        VStack(spacing: 0) {
+            // Capture mode picker — document / whiteboard / book barcode
+            Picker("Mode", selection: $captureModeRaw) {
+                ForEach(CaptureMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.symbolName).tag(mode.rawValue)
                 }
             }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .onChange(of: captureModeRaw) { _, _ in
+                // Barcode mode reads the preview itself and needs the
+                // detail; the others capture a still and cannot afford
+                // the bandwidth.
+                manager.matchPreviewQuality(to: captureMode)
+                handleCaptureModeChange()
+            }
+
+            // Top bar with title and mode toggles
+            HStack {
+                // Auto-capture toggle
+                Button {
+                    isAutoCaptureOn.toggle()
+                    if isAutoCaptureOn {
+                        processor.startAutoCapture()
+                    } else {
+                        processor.stopAutoCapture()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isAutoCaptureOn ? "a.circle.fill" : "a.circle")
+                            .font(.system(size: 18))
+                        Text("Auto")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(isAutoCaptureOn ? .green : .white.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                }
+
+                // Multi-page toggle
+                Button {
+                    isMultiPageMode.toggle()
+                    if isMultiPageMode {
+                        processor.startMultiPageSession()
+                    } else {
+                        // If switching off multi-page, finish any current session
+                        if processor.capturedPageCount > 0 {
+                            _ = processor.finishMultiPageSession()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isMultiPageMode ? "doc.on.doc.fill" : "doc.fill")
+                            .font(.system(size: 16))
+                        Text(isMultiPageMode ? "Multi" : "Single")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(isMultiPageMode ? .blue : .white.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                }
+
+                Spacer()
+
+                // Source indicator
+                if isActivelyScanning {
+                    HStack(spacing: 4) {
+                        Image(systemName: usingPhoneCamera ? "camera.fill" : "eyeglasses")
+                            .font(.system(size: 14))
+                        Text(usingPhoneCamera ? "Phone" : "Glasses")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                }
+
+                // Page counter badge (when pages captured in multi-page mode)
+                if isMultiPageMode && processor.capturedPageCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.doc.fill")
+                            .font(.system(size: 14))
+                        Text("\(processor.capturedPageCount)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.blue)
+                    .clipShape(Capsule())
+                }
+            }
+            .padding()
+            .background(
+                LinearGradient(
+                    colors: [.black.opacity(0.6), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            Spacer()
+
+            // Status and content area (hide default status when auto-capture is showing overlay)
+            VStack(spacing: 24) {
+                // Status indicator (only show when not in auto-capture scanning mode)
+                if !isAutoCaptureOn || summarizer.state != .idle || processor.state == .complete {
+                    statusSection
+                }
+
+                // Content area (streaming summary)
+                if summarizer.state == .summarizing || summarizer.state == .complete {
+                    summaryCard
+                }
+            }
+            .padding()
+
+            Spacer()
+
+            // Bottom controls
+            bottomControls
+                .padding()
+                .background(
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.8)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            scannerWorkspace
             .navigationBarHidden(true)
             .sheet(isPresented: $showingDeckSelector) {
                 if let card = pendingCard {
